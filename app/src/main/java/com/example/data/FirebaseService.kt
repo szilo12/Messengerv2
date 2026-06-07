@@ -28,9 +28,9 @@ object FirebaseService {
     private var firestore: FirebaseFirestore? = null
 
     private var usersListener: ListenerRegistration? = null
-    private var friendshipsListener1: ListenerRegistration? = null
-    private var friendshipsListener2: ListenerRegistration? = null
-    private var messagesListener: ListenerRegistration? = null
+    private var friendshipsListener: ListenerRegistration? = null
+    private var messagesListener1: ListenerRegistration? = null
+    private var messagesListener2: ListenerRegistration? = null
     private var callsListener: ListenerRegistration? = null
     private var activeCallListener: ListenerRegistration? = null
 
@@ -262,25 +262,15 @@ object FirebaseService {
             }
 
         // 1b. Sync RELATIONSHIPS (Friendships)
-        friendshipsListener1 = mFirestore.collection("friendships")
-            .whereEqualTo("user1", myId)
+        friendshipsListener?.remove()
+        friendshipsListener = mFirestore.collection("friendships")
+            .where(com.google.firebase.firestore.Filter.or(
+                com.google.firebase.firestore.Filter.equalTo("user1", myId),
+                com.google.firebase.firestore.Filter.equalTo("user2", myId)
+            ))
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
-                    Log.e(TAG, "Friendships listener 1 failed", e)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    scope.launch {
-                        processFriendshipsSnapshot(context, snapshot)
-                    }
-                }
-            }
-
-        friendshipsListener2 = mFirestore.collection("friendships")
-            .whereEqualTo("user2", myId)
-            .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Log.e(TAG, "Friendships listener 2 failed", e)
+                    Log.e(TAG, "Friendships listener failed", e)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
@@ -292,28 +282,68 @@ object FirebaseService {
 
         // 2. Sync MESSAGES
         // We listen to all messages either sent by me, or received by me.
-        messagesListener = mFirestore.collection("messages")
+        messagesListener1 = mFirestore.collection("messages")
+            .whereEqualTo("receiverId", myId)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
-                    Log.e(TAG, "Messages listener failed", e)
+                    Log.e(TAG, "Messages listener 1 failed", e)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
                     scope.launch {
-                        for (doc in snapshot.documents) {
-                            val senderId = doc.getString("senderId") ?: continue
-                            val receiverId = doc.getString("receiverId") ?: continue
-                            
-                            // Only process messages involving me
-                            if (senderId == myId || receiverId == myId) {
+                        for (change in snapshot.documentChanges) {
+                            if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED || 
+                                change.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
+                                
+                                val doc = change.document
+                                val senderId = doc.getString("senderId") ?: continue
+                                val receiverId = doc.getString("receiverId") ?: continue
+                                
                                 val content = doc.getString("content") ?: ""
                                 val timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                                 val isRead = doc.getBoolean("isRead") ?: false
                                 val isAccepted = doc.getBoolean("isAccepted") ?: true
 
                                 val msg = DbMessage(
-                                    senderId = if (senderId == myId) "me" else senderId,
-                                    receiverId = if (receiverId == myId) "me" else receiverId,
+                                    senderId = senderId,
+                                    receiverId = "me",
+                                    content = content,
+                                    timestamp = timestamp,
+                                    isRead = isRead,
+                                    isAccepted = isAccepted
+                                )
+                                repository.insertMessageDirectlyIfNotExist(msg)
+                            }
+                        }
+                    }
+                }
+            }
+
+        messagesListener2 = mFirestore.collection("messages")
+            .whereEqualTo("senderId", myId)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e(TAG, "Messages listener 2 failed", e)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    scope.launch {
+                        for (change in snapshot.documentChanges) {
+                            if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED || 
+                                change.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
+                                
+                                val doc = change.document
+                                val senderId = doc.getString("senderId") ?: continue
+                                val receiverId = doc.getString("receiverId") ?: continue
+                                
+                                val content = doc.getString("content") ?: ""
+                                val timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                                val isRead = doc.getBoolean("isRead") ?: false
+                                val isAccepted = doc.getBoolean("isAccepted") ?: true
+
+                                val msg = DbMessage(
+                                    senderId = "me",
+                                    receiverId = receiverId,
                                     content = content,
                                     timestamp = timestamp,
                                     isRead = isRead,
@@ -389,12 +419,12 @@ object FirebaseService {
     fun stopRealtimeListeners() {
         usersListener?.remove()
         usersListener = null
-        friendshipsListener1?.remove()
-        friendshipsListener1 = null
-        friendshipsListener2?.remove()
-        friendshipsListener2 = null
-        messagesListener?.remove()
-        messagesListener = null
+        friendshipsListener?.remove()
+        friendshipsListener = null
+        messagesListener1?.remove()
+        messagesListener1 = null
+        messagesListener2?.remove()
+        messagesListener2 = null
         callsListener?.remove()
         callsListener = null
         activeCallListener?.remove()
@@ -604,11 +634,22 @@ object FirebaseService {
     suspend fun sendRealtimeMessage(context: Context, receiverId: String, content: String, isAccepted: Boolean) {
         val myId = getMyUserId()
         val mFirestore = firestore
+        val timestamp = System.currentTimeMillis()
+
+        // Write instantly locally for offline/instant UI capabilities
+        val msg = com.example.data.DbMessage(
+            senderId = "me",
+            receiverId = receiverId,
+            content = content,
+            timestamp = timestamp,
+            isRead = true,
+            isAccepted = isAccepted
+        )
+        ChatRepository(context).insertMessageDirectlyIfNotExist(msg)
         
         // Write to Firestore if available
         if (myId != "local_me" && mFirestore != null) {
             try {
-                val timestamp = System.currentTimeMillis()
                 val messageData = hashMapOf(
                     "senderId" to myId,
                     "receiverId" to receiverId,

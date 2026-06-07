@@ -415,7 +415,12 @@ class MainActivity : ComponentActivity() {
 
                                     when (currentTab) {
                                         "chats" -> ChatsTabScreen(
-                                            users = allUsers.filter { it.isFriend },
+                                            users = allUsers.filter { user -> 
+                                                user.isFriend || allMessages.any { msg -> 
+                                                    (msg.senderId == user.id && msg.receiverId == "me") || 
+                                                    (msg.senderId == "me" && msg.receiverId == user.id) 
+                                                }
+                                            },
                                             allMessages = allMessages,
                                             onUserSelect = { chatViewModel.selectUser(it) }
                                         )
