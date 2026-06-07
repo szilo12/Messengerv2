@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -27,6 +28,8 @@ object FirebaseService {
     private var firestore: FirebaseFirestore? = null
 
     private var usersListener: ListenerRegistration? = null
+    private var friendshipsListener1: ListenerRegistration? = null
+    private var friendshipsListener2: ListenerRegistration? = null
     private var messagesListener: ListenerRegistration? = null
     private var callsListener: ListenerRegistration? = null
     private var activeCallListener: ListenerRegistration? = null
@@ -226,12 +229,15 @@ object FirebaseService {
                             if (id == myId) continue // Skip saving self in normal friends list
                             
                             val name = doc.getString("name") ?: "Felhasználó"
-                            val status = doc.getString("status") ?: "Offline"
                             val avatarColor = doc.getLong("avatarColor") ?: 0xFF3B82F6
                             val avatarUrl = doc.getString("avatarUrl")
-                            val isFriend = doc.getBoolean("isFriend") ?: true // default true inside chat
-                            val isRequestSent = doc.getBoolean("isRequestSent") ?: false
-                            val isRequestReceived = doc.getBoolean("isRequestReceived") ?: false
+                            
+                            val existingUser = repository.getUserById(id)
+                            val isFriend = existingUser?.isFriend ?: doc.getBoolean("isFriend") ?: false
+                            val isRequestSent = existingUser?.isRequestSent ?: doc.getBoolean("isRequestSent") ?: false
+                            val isRequestReceived = existingUser?.isRequestReceived ?: doc.getBoolean("isRequestReceived") ?: false
+                            
+                            val status = if (isFriend) (doc.getString("status") ?: "Offline") else "Offline"
                             
                             val user = User(
                                 id = id,
@@ -251,6 +257,35 @@ object FirebaseService {
                                 repository.insertOrUpdateUserDirectly(user)
                             }
                         }
+                    }
+                }
+            }
+
+        // 1b. Sync RELATIONSHIPS (Friendships)
+        friendshipsListener1 = mFirestore.collection("friendships")
+            .whereEqualTo("user1", myId)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e(TAG, "Friendships listener 1 failed", e)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    scope.launch {
+                        processFriendshipsSnapshot(context, snapshot)
+                    }
+                }
+            }
+
+        friendshipsListener2 = mFirestore.collection("friendships")
+            .whereEqualTo("user2", myId)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e(TAG, "Friendships listener 2 failed", e)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    scope.launch {
+                        processFriendshipsSnapshot(context, snapshot)
                     }
                 }
             }
@@ -277,8 +312,8 @@ object FirebaseService {
                                 val isAccepted = doc.getBoolean("isAccepted") ?: true
 
                                 val msg = DbMessage(
-                                    senderId = senderId,
-                                    receiverId = receiverId,
+                                    senderId = if (senderId == myId) "me" else senderId,
+                                    receiverId = if (receiverId == myId) "me" else receiverId,
                                     content = content,
                                     timestamp = timestamp,
                                     isRead = isRead,
@@ -354,6 +389,10 @@ object FirebaseService {
     fun stopRealtimeListeners() {
         usersListener?.remove()
         usersListener = null
+        friendshipsListener1?.remove()
+        friendshipsListener1 = null
+        friendshipsListener2?.remove()
+        friendshipsListener2 = null
         messagesListener?.remove()
         messagesListener = null
         callsListener?.remove()
@@ -362,15 +401,210 @@ object FirebaseService {
         activeCallListener = null
     }
 
+    private suspend fun processFriendshipsSnapshot(context: Context, snapshot: com.google.firebase.firestore.QuerySnapshot) {
+        val myId = getMyUserId()
+        val repository = ChatRepository(context)
+        val mFirestore = firestore ?: return
+
+        try {
+            // Check current local users and clear stale friendship states
+            val allLocalUsers = repository.allUsersFlow.firstOrNull() ?: emptyList()
+            val currentFriendshipsIds = snapshot.documents.map { doc ->
+                val u1 = doc.getString("user1") ?: ""
+                val u2 = doc.getString("user2") ?: ""
+                if (u1 == myId) u2 else u1
+            }.toSet()
+
+            for (u in allLocalUsers) {
+                if (!u.isSelf && !currentFriendshipsIds.contains(u.id)) {
+                    if (u.isFriend || u.isRequestSent || u.isRequestReceived) {
+                        repository.insertOrUpdateUserDirectly(u.copy(
+                            isFriend = false,
+                            isRequestSent = false,
+                            isRequestReceived = false
+                        ))
+                    }
+                }
+            }
+
+            // Sync with current Firestore friendship documents
+            for (doc in snapshot.documents) {
+                val user1 = doc.getString("user1") ?: continue
+                val user2 = doc.getString("user2") ?: continue
+                val senderId = doc.getString("senderId") ?: ""
+                val status = doc.getString("status") ?: ""
+
+                val targetUserId = if (user1 == myId) user2 else user1
+                val existingUser = repository.getUserById(targetUserId)
+
+                val isFriend = status == "accepted"
+                val isRequestSent = status == "pending" && senderId == myId
+                val isRequestReceived = status == "pending" && senderId != myId
+
+                val name = existingUser?.name ?: "Felhasználó"
+                val avatarColor = existingUser?.avatarColor ?: 0xFF6366F1
+                val avatarUrl = existingUser?.avatarUrl
+                val userStatus = existingUser?.status ?: "Offline"
+
+                val updated = User(
+                    id = targetUserId,
+                    name = name,
+                    status = userStatus,
+                    avatarColor = avatarColor,
+                    isFriend = isFriend,
+                    isRequestSent = isRequestSent,
+                    isRequestReceived = isRequestReceived,
+                    avatarUrl = avatarUrl
+                )
+                repository.insertOrUpdateUserDirectly(updated)
+
+                if (name == "Felhasználó") {
+                    scope.launch {
+                        try {
+                            val userDoc = mFirestore.collection("users").document(targetUserId).get().await()
+                            if (userDoc != null && userDoc.exists()) {
+                                val fetchedName = userDoc.getString("name") ?: "Felhasználó"
+                                val fetchedColor = userDoc.getLong("avatarColor") ?: 0xFF6366F1
+                                val fetchedAvatar = userDoc.getString("avatarUrl")
+                                val fetchedStatus = if (isFriend) (userDoc.getString("status") ?: "Offline") else "Offline"
+
+                                val freshUser = updated.copy(
+                                    name = fetchedName,
+                                    avatarColor = fetchedColor,
+                                    avatarUrl = fetchedAvatar,
+                                    status = fetchedStatus
+                                )
+                                repository.insertOrUpdateUserDirectly(freshUser)
+                            }
+                        } catch (ex: Exception) {
+                            Log.e(TAG, "Failed fetching details for skeleton user $targetUserId", ex)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing friendships snapshot", e)
+        }
+    }
+
+    suspend fun acceptRealtimeMessageRequest(context: Context, targetUserId: String) {
+        val myId = getMyUserId()
+        val mFirestore = firestore ?: return
+        if (myId == "local_me") return
+
+        val repository = ChatRepository(context)
+        repository.acceptMessageRequest(targetUserId)
+
+        try {
+            // Meet in friendships as accepted
+            acceptFriendRequest(targetUserId)
+
+            // Update message status in Firestore
+            val messagesRef = mFirestore.collection("messages")
+            val senderQuery = messagesRef
+                .whereEqualTo("senderId", targetUserId)
+                .whereEqualTo("receiverId", myId)
+                .get().await()
+
+            for (doc in senderQuery.documents) {
+                doc.reference.update("isAccepted", true).await()
+            }
+            Log.d(TAG, "Accepted realtime message request successfully in Firestore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to accept message request in Firestore", e)
+        }
+    }
+
+    suspend fun rejectRealtimeMessageRequest(context: Context, targetUserId: String) {
+        val myId = getMyUserId()
+        val mFirestore = firestore ?: return
+        if (myId == "local_me") return
+
+        val repository = ChatRepository(context)
+        repository.rejectMessageRequest(targetUserId)
+
+        try {
+            // Delete friendships
+            rejectFriendRequest(targetUserId)
+
+            // Delete messages in Firestore
+            val messagesRef = mFirestore.collection("messages")
+            val incoming = messagesRef.whereEqualTo("senderId", targetUserId).whereEqualTo("receiverId", myId).get().await()
+            for (doc in incoming.documents) {
+                doc.reference.delete().await()
+            }
+            val outgoing = messagesRef.whereEqualTo("senderId", myId).whereEqualTo("receiverId", targetUserId).get().await()
+            for (doc in outgoing.documents) {
+                doc.reference.delete().await()
+            }
+            Log.d(TAG, "Rejected and deleted message request successfully in Firestore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reject message request in Firestore", e)
+        }
+    }
+
+    suspend fun sendFriendRequest(targetUserId: String) {
+        val myId = getMyUserId()
+        val mFirestore = firestore ?: return
+        if (myId == "local_me") return
+
+        val user1 = if (myId < targetUserId) myId else targetUserId
+        val user2 = if (myId > targetUserId) myId else targetUserId
+        val docId = "${user1}_${user2}"
+
+        try {
+            val friendship = hashMapOf(
+                "user1" to user1,
+                "user2" to user2,
+                "senderId" to myId,
+                "status" to "pending"
+            )
+            mFirestore.collection("friendships").document(docId).set(friendship).await()
+            Log.d(TAG, "Friend request uploaded to Firestore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to upload friend request to Firestore", e)
+        }
+    }
+
+    suspend fun acceptFriendRequest(targetUserId: String) {
+        val myId = getMyUserId()
+        val mFirestore = firestore ?: return
+        if (myId == "local_me") return
+
+        val user1 = if (myId < targetUserId) myId else targetUserId
+        val user2 = if (myId > targetUserId) myId else targetUserId
+        val docId = "${user1}_${user2}"
+
+        try {
+            mFirestore.collection("friendships").document(docId).update("status", "accepted").await()
+            Log.d(TAG, "Friend request accepted in Firestore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to accept friend request in Firestore", e)
+        }
+    }
+
+    suspend fun rejectFriendRequest(targetUserId: String) {
+        val myId = getMyUserId()
+        val mFirestore = firestore ?: return
+        if (myId == "local_me") return
+
+        val user1 = if (myId < targetUserId) myId else targetUserId
+        val user2 = if (myId > targetUserId) myId else targetUserId
+        val docId = "${user1}_${user2}"
+
+        try {
+            mFirestore.collection("friendships").document(docId).delete().await()
+            Log.d(TAG, "Friendship/request deleted in Firestore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete friendship/request in Firestore", e)
+        }
+    }
+
     // --- FIRESTORE USER SEND ACTIONS ---
     suspend fun sendRealtimeMessage(context: Context, receiverId: String, content: String, isAccepted: Boolean) {
         val myId = getMyUserId()
         val mFirestore = firestore
         
-        // Write to local Room database instantly for offline confidence
-        val repository = ChatRepository(context)
-        repository.sendMessage(receiverId, content, isAccepted)
-
         // Write to Firestore if available
         if (myId != "local_me" && mFirestore != null) {
             try {

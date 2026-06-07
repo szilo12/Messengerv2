@@ -191,11 +191,7 @@ object CallManager {
         if (activeCall != null) {
             scope.launch {
                 try {
-                    val db = androidx.room.Room.databaseBuilder(
-                        context.applicationContext,
-                        com.example.data.AppDatabase::class.java,
-                        "olyna_messenger_db"
-                    ).fallbackToDestructiveMigration().build()
+                    val db = com.example.data.DatabaseProvider.getDatabase(context.applicationContext)
                     
                     val callerId = when {
                         activeCall.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
@@ -213,7 +209,6 @@ object CallManager {
                         isAccepted = true
                     )
                     db.chatDao().insertMessage(callLogMessage)
-                    db.close()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed inserting call decline log", e)
                 }
@@ -246,11 +241,7 @@ object CallManager {
         if (activeCall != null) {
             scope.launch {
                 try {
-                    val db = androidx.room.Room.databaseBuilder(
-                        context.applicationContext,
-                        com.example.data.AppDatabase::class.java,
-                        "olyna_messenger_db"
-                    ).fallbackToDestructiveMigration().build()
+                    val db = com.example.data.DatabaseProvider.getDatabase(context.applicationContext)
                     
                     val callerId = when {
                         activeCall.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
@@ -268,7 +259,6 @@ object CallManager {
                         isAccepted = true
                     )
                     db.chatDao().insertMessage(callLogMessage)
-                    db.close()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed inserting end call log", e)
                 }
@@ -293,28 +283,24 @@ object CallManager {
         scope.launch(Dispatchers.IO) {
             var customRingtone = "Alapértelmezett"
             var customVibration = "Alapértelmezett"
+            var finalCallerId = "olyna"
 
             val callData = _currentCall.value
             if (callData != null) {
                 try {
-                    val db = androidx.room.Room.databaseBuilder(
-                        context.applicationContext,
-                        com.example.data.AppDatabase::class.java,
-                        "olyna_messenger_db"
-                    ).fallbackToDestructiveMigration().build()
+                    val db = com.example.data.DatabaseProvider.getDatabase(context.applicationContext)
                     
-                    val callerId = when {
+                    finalCallerId = when {
                         callData.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
                         callData.callerName.contains("Szilárd", ignoreCase = true) -> "szilard"
                         callData.callerName.contains("Anya", ignoreCase = true) || callData.callerName.contains("Család", ignoreCase = true) -> "anyuka"
                         else -> "olyna"
                     }
-                    val user = db.chatDao().getUserById(callerId)
+                    val user = db.chatDao().getUserById(finalCallerId)
                     if (user != null) {
                         customRingtone = user.customRingtone
                         customVibration = user.customVibration
                     }
-                    db.close()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error checking user call settings from Db", e)
                 }
@@ -325,7 +311,42 @@ object CallManager {
                 Log.d(TAG, "Applying ringtone: $customRingtone, vibration: $customVibration for incoming call")
                 
                 // Sound setup
-                if (customRingtone == "Alapértelmezett") {
+                if (customRingtone == "Saját MP3 (.mp3)") {
+                    try {
+                        val file = java.io.File(context.filesDir, "custom_ringtone_${finalCallerId}.mp3")
+                        if (file.exists()) {
+                            mediaPlayer = MediaPlayer().apply {
+                                setDataSource(file.absolutePath)
+                                setAudioAttributes(
+                                    AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
+                                )
+                                isLooping = true
+                                prepare()
+                                start()
+                            }
+                        } else {
+                            // Fallback to default
+                            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                            mediaPlayer = MediaPlayer().apply {
+                                setDataSource(context, ringtoneUri)
+                                setAudioAttributes(
+                                    AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
+                                )
+                                isLooping = true
+                                prepare()
+                                start()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error playing custom mp3 ringtone", e)
+                    }
+                } else if (customRingtone == "Alapértelmezett") {
                     try {
                         val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                         mediaPlayer = MediaPlayer().apply {

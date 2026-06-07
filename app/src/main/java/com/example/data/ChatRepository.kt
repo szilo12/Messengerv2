@@ -6,12 +6,25 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 
+object DatabaseProvider {
+    @Volatile
+    private var INSTANCE: AppDatabase? = null
+
+    fun getDatabase(context: Context): AppDatabase {
+        return INSTANCE ?: synchronized(this) {
+            val instance = Room.databaseBuilder(
+                context.applicationContext,
+                AppDatabase::class.java,
+                "olyna_messenger_db"
+            ).fallbackToDestructiveMigration().build()
+            INSTANCE = instance
+            instance
+        }
+    }
+}
+
 class ChatRepository(context: Context) {
-    private val db = Room.databaseBuilder(
-        context.applicationContext,
-        AppDatabase::class.java,
-        "olyna_messenger_db"
-    ).fallbackToDestructiveMigration().build()
+    private val db = DatabaseProvider.getDatabase(context)
 
     private val dao = db.chatDao()
 
@@ -20,28 +33,17 @@ class ChatRepository(context: Context) {
     val settingsFlow: Flow<UserSettings> = dao.getSettingsFlow().map { it ?: UserSettings() }
 
     suspend fun initializeDataIfEmpty() {
-        val currentUsers = dao.getAllUsersFlow().map { list -> list.filter { !it.isSelf } }.firstOrNull()
-        if (currentUsers.isNullOrEmpty()) {
-            val defaultUsers = listOf(
-                User("me", "Saját Profil", "Online", 0xFF6366F1, isFriend = false, isRequestSent = false, isRequestReceived = false, isSelf = true, avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80"),
-                User("olyna", "Olyna", "Aktív most", 0xFFEC4899, isFriend = true, isRequestSent = false, isRequestReceived = false, avatarUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"),
-                User("szilard", "Szilárd Cseke", "Aktív most", 0xFF3B82F6, isFriend = true, isRequestSent = false, isRequestReceived = false, avatarUrl = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"),
-                User("anyuka", "Család / Anya", "Nemrég volt aktív", 0xFFF59E0B, isFriend = true, isRequestSent = false, isRequestReceived = false, avatarUrl = "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=150&q=80"),
-                User("jhaymark", "Jhaymark Sudaria", "Aktív 5p. h.", 0xFF10B981, isFriend = false, isRequestSent = false, isRequestReceived = false, avatarUrl = null),
-                User("kovacs", "Kovács Péter", "Aktív 1 ó. h.", 0xFF8B5CF6, isFriend = false, isRequestSent = false, isRequestReceived = false, avatarUrl = null),
-                User("toth", "Tóth Gábor", "Online", 0xFFEF4444, isFriend = false, isRequestSent = false, isRequestReceived = true, avatarUrl = null)
-            )
-            dao.insertUsers(defaultUsers)
+        // ALWAYS clean up previously seeded mock users to ensure they are removed from existing devices/databases
+        val mockIds = listOf("olyna", "szilard", "anyuka", "jhaymark", "kovacs", "toth")
+        for (id in mockIds) {
+            dao.deleteUserById(id)
+            dao.deleteMessagesBetween("me", id)
+        }
 
-            val defaultMessages = listOf(
-                DbMessage(senderId = "olyna", receiverId = "me", content = "Szia! Készen állsz a hívásra? 😊", isRead = false),
-                DbMessage(senderId = "szilard", receiverId = "me", content = "Megírtam a Kotlin híváskezelőt!", isRead = true),
-                DbMessage(senderId = "anyuka", receiverId = "me", content = "Vedd meg a tejet kérlek", isRead = true),
-                DbMessage(senderId = "jhaymark", receiverId = "me", content = "Szia! Messenger call demo works perfectly, check it out!", isRead = false, isAccepted = false)
-            )
-            for (msg in defaultMessages) {
-                dao.insertMessage(msg)
-            }
+        val currentUsers = dao.getAllUsersFlow().map { list -> list.filter { it.isSelf } }.firstOrNull()
+        if (currentUsers.isNullOrEmpty()) {
+            val myProfile = User("me", "Saját Profil", "Online", 0xFF6366F1, isFriend = false, isRequestSent = false, isRequestReceived = false, isSelf = true, avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80")
+            dao.insertUser(myProfile)
             dao.insertSettings(UserSettings(1, false, "Szilárd", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80"))
         }
     }
@@ -130,6 +132,10 @@ class ChatRepository(context: Context) {
 
     suspend fun updateCustomCallSettings(userId: String, ringtone: String, vibration: String) {
         dao.updateCustomCallSettings(userId, ringtone, vibration)
+    }
+
+    suspend fun getUserById(userId: String): User? {
+        return dao.getUserById(userId)
     }
 
     suspend fun insertOrUpdateUserDirectly(user: User) {

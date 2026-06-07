@@ -51,6 +51,9 @@ interface ChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUsers(users: List<User>)
 
+    @Query("DELETE FROM users WHERE id = :id")
+    suspend fun deleteUserById(id: String)
+
     @Update
     suspend fun updateUser(user: User)
 

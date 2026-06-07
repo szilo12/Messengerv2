@@ -10,9 +10,13 @@ import androidx.compose.foundation.horizontalScroll
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import android.net.Uri
+import android.media.MediaPlayer
+import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -876,7 +880,12 @@ fun FriendsTabScreen(
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Text(req.name, color = Color.White)
                                     }
-                                    Text("Függőben", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Függőben", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                                        TextButton(onClick = { onRejectFriendRequest(req.id) }) {
+                                            Text("Visszavonás", color = Color(0xFFEF4444), fontSize = 12.sp)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -892,11 +901,14 @@ fun FriendsTabScreen(
                     } else {
                         items(discoverableUsers) { user ->
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.weight(1f).clickable { onChatSelect(user) },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     UserAvatar(
                                         name = user.name,
                                         avatarColor = user.avatarColor,
@@ -1377,7 +1389,12 @@ fun ChatDetailScreen(
 ) {
     var textInput by remember { mutableStateOf("") }
     var showCustomCallDialog by remember { mutableStateOf(false) }
-    val isRequest = !user.isFriend
+    
+    // Only block input with accept/decline choices if we have incoming UNACCEPTED messages
+    val hasIncomingUnaccepted = remember(messages) {
+        messages.any { it.senderId == user.id && it.receiverId == "me" && !it.isAccepted }
+    }
+    val isRequest = !user.isFriend && hasIncomingUnaccepted
     
     // Limit to load max 100 messages initially ("száz beszélgetés után ne töltse be a regényeket csak ha visszamegyünk")
     var messageLimit by remember { mutableStateOf(100) }
@@ -1447,8 +1464,48 @@ fun ChatDetailScreen(
                 )
             }
 
-            // Chat Info options menu representing Messenger info screen (calls kept here clean)
-            if (!isRequest) {
+            // Calling action buttons placed directly on Top Bar like standard Facebook Messenger
+            if (user.isFriend) {
+                val context = LocalContext.current
+                // Direct Audio Call Button
+                IconButton(onClick = {
+                    if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                        com.example.data.FirebaseService.startRealtimeCall(context, user.id, user.name, CallType.VOICE)
+                    } else {
+                        CallManager.triggerIncomingCall(
+                            context,
+                            CallData(
+                                callerName = user.name,
+                                callerSubtitle = "Bejövő Hang Hívás",
+                                callType = CallType.VOICE,
+                                callerAvatarHexColor = user.avatarColor
+                            )
+                        )
+                    }
+                }) {
+                    Icon(Icons.Rounded.Call, contentDescription = "Hanghívás", tint = Color(0xFF0084FF))
+                }
+
+                // Direct Video Call Button
+                IconButton(onClick = {
+                    if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                        com.example.data.FirebaseService.startRealtimeCall(context, user.id, user.name, CallType.VIDEO)
+                    } else {
+                        CallManager.triggerIncomingCall(
+                            context,
+                            CallData(
+                                callerName = user.name,
+                                callerSubtitle = "Bejövő Videó Hívás",
+                                callType = CallType.VIDEO,
+                                callerAvatarHexColor = user.avatarColor
+                            )
+                        )
+                    }
+                }) {
+                    Icon(Icons.Rounded.VideoCall, contentDescription = "Videóhívás", tint = Color(0xFF0084FF))
+                }
+
+                // Info Menu for test utilities
                 var showMenu by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
@@ -1497,6 +1554,39 @@ fun ChatDetailScreen(
             val context = LocalContext.current
             var selectedRingtone by remember { mutableStateOf(user.customRingtone) }
             var selectedVibration by remember { mutableStateOf(user.customVibration) }
+            var previewMediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+
+            // File picker for mp3
+            val mp3PickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                if (uri != null) {
+                    try {
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        if (inputStream != null) {
+                            val targetFile = File(context.filesDir, "custom_ringtone_${user.id}.mp3")
+                            targetFile.outputStream().use { output ->
+                                inputStream.copyTo(output)
+                            }
+                            selectedRingtone = "Saját MP3 (.mp3)"
+                            Toast.makeText(context, "Egyedi csengőhang betöltve! 🎉", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Ringtone", "Error copying mp3 file", e)
+                        Toast.makeText(context, "Hiba az MP3 másolása közben: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    try {
+                        previewMediaPlayer?.stop()
+                        previewMediaPlayer?.release()
+                        previewMediaPlayer = null
+                    } catch (e: Exception) {}
+                }
+            }
 
             AlertDialog(
                 onDismissRequest = { showCustomCallDialog = false },
@@ -1521,7 +1611,7 @@ fun ChatDetailScreen(
                         // Ringtone Selection Card
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Csengőhang dallama", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            val ringtones = listOf("Alapértelmezett", "Klasszikus dallam", "Neon dallam", "Lágy ütem", "Szirén csengő")
+                            val ringtones = listOf("Alapértelmezett", "Klasszikus dallam", "Neon dallam", "Lágy ütem", "Szirén csengő", "Saját MP3 (.mp3)")
                             
                             Row(
                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1531,7 +1621,18 @@ fun ChatDetailScreen(
                                     val active = selectedRingtone == r
                                     FilterChip(
                                         selected = active,
-                                        onClick = { selectedRingtone = r },
+                                        onClick = { 
+                                            if (r == "Saját MP3 (.mp3)") {
+                                                val hasFile = File(context.filesDir, "custom_ringtone_${user.id}.mp3").exists()
+                                                if (!hasFile) {
+                                                    mp3PickerLauncher.launch("audio/*")
+                                                } else {
+                                                    selectedRingtone = r
+                                                }
+                                            } else {
+                                                selectedRingtone = r 
+                                            }
+                                        },
                                         label = { Text(r, fontSize = 12.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = Color(0xFF0084FF),
@@ -1540,6 +1641,29 @@ fun ChatDetailScreen(
                                             labelColor = Color.White.copy(alpha = 0.6f)
                                         )
                                     )
+                                }
+                            }
+
+                            val hasExistMp3 = remember(selectedRingtone) { 
+                                mutableStateOf(File(context.filesDir, "custom_ringtone_${user.id}.mp3").exists()) 
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (hasExistMp3.value) "✅ Van feltöltött MP3 fájl" else "❌ Nincs egyedi MP3 feltöltve",
+                                    color = if (hasExistMp3.value) Color(0xFF10B981) else Color.White.copy(alpha = 0.5f),
+                                    fontSize = 11.sp
+                                )
+                                TextButton(
+                                    onClick = { mp3PickerLauncher.launch("audio/*") },
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF38BDF8))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("MP3 csere...", color = Color(0xFF38BDF8), fontSize = 12.sp)
                                 }
                             }
                         }
@@ -1575,8 +1699,40 @@ fun ChatDetailScreen(
                             onClick = {
                                 Toast.makeText(context, "Minta hanglejátszás és rezgés...", Toast.LENGTH_SHORT).show()
                                 
-                                // Clean up any active beeper
-                                if (selectedRingtone != "Alapértelmezett") {
+                                // Clean up activeMediaPlayer if exists
+                                try {
+                                    previewMediaPlayer?.stop()
+                                    previewMediaPlayer?.release()
+                                    previewMediaPlayer = null
+                                } catch (ex: Exception) {}
+
+                                if (selectedRingtone == "Saját MP3 (.mp3)") {
+                                    try {
+                                        val file = File(context.filesDir, "custom_ringtone_${user.id}.mp3")
+                                        if (file.exists()) {
+                                            val mp = MediaPlayer().apply {
+                                                setDataSource(file.absolutePath)
+                                                prepare()
+                                                start()
+                                            }
+                                            previewMediaPlayer = mp
+                                            // Auto-stop preview after 4 seconds
+                                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                                try {
+                                                    mp.stop()
+                                                    mp.release()
+                                                    if (previewMediaPlayer == mp) {
+                                                        previewMediaPlayer = null
+                                                    }
+                                                } catch (ex: Exception) {}
+                                            }, 4000)
+                                        } else {
+                                            Toast.makeText(context, "Nincsen egyedi MP3 fájl feltöltve ehhez a felhasználóhoz!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("Preview", "Error playing custom mp3 preview", e)
+                                    }
+                                } else if (selectedRingtone != "Alapértelmezett") {
                                     try {
                                         val gen = android.media.ToneGenerator(android.media.AudioManager.STREAM_RING, 100)
                                         when (selectedRingtone) {
