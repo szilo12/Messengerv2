@@ -89,28 +89,8 @@ class MainActivity : ComponentActivity() {
                 val currentCall by CallManager.currentCall.collectAsState()
 
                 var currentTab by remember { mutableStateOf("chats") } // chats, friends, requests, settings
-                var schedulerTimeLeft by remember { mutableIntStateOf(0) }
+                val schedulerTimeLeft by CallManager.schedulerSecondsLeft.collectAsState()
                 var scheduledCallerName by remember { mutableStateOf("") }
-                var scheduledCallerColor by remember { mutableLongStateOf(0xFFEC4899) }
-
-                // VoIP Call triggering effect
-                LaunchedEffect(schedulerTimeLeft) {
-                    if (schedulerTimeLeft > 0) {
-                        delay(1000)
-                        schedulerTimeLeft--
-                        if (schedulerTimeLeft == 0) {
-                            CallManager.triggerIncomingCall(
-                                context,
-                                CallData(
-                                    callerName = scheduledCallerName,
-                                    callerSubtitle = "Messenger Bejövő Hívás",
-                                    callType = CallType.VIDEO,
-                                    callerAvatarHexColor = scheduledCallerColor
-                                )
-                            )
-                        }
-                    }
-                }
 
                 // Physical Android Back Button Interception logic
                 if (selectedUser != null) {
@@ -279,8 +259,17 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onTriggerScheduledCall = { delaySec ->
                                             scheduledCallerName = user.name
-                                            scheduledCallerColor = user.avatarColor
-                                            schedulerTimeLeft = delaySec
+                                            // scheduledCallerColor removed
+                                            CallManager.scheduleCall(
+                                                context,
+                                                delaySec,
+                                                CallData(
+                                                    callerName = user.name,
+                                                    callerSubtitle = "Bejövő Videó Hívás",
+                                                    callType = CallType.VIDEO,
+                                                    callerAvatarHexColor = user.avatarColor
+                                                )
+                                            )
                                             Toast.makeText(context, "$delaySec mp múlva szimulált hívás indul! Zárold le vagy lépj ki a teszthez!", Toast.LENGTH_LONG).show()
                                         },
                                         onAcceptMessageRequest = {

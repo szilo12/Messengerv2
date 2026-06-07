@@ -59,8 +59,22 @@ object CallManager {
     private val _signalingLogs = MutableStateFlow<List<String>>(emptyList())
     val signalingLogs: StateFlow<List<String>> = _signalingLogs.asStateFlow()
 
+    private val _schedulerSecondsLeft = MutableStateFlow(0)
+    val schedulerSecondsLeft: StateFlow<Int> = _schedulerSecondsLeft.asStateFlow()
+
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+
+    fun scheduleCall(context: Context, delaySeconds: Int, callData: CallData) {
+        scope.launch {
+            _schedulerSecondsLeft.value = delaySeconds
+            while (_schedulerSecondsLeft.value > 0) {
+                delay(1000)
+                _schedulerSecondsLeft.value = _schedulerSecondsLeft.value - 1
+            }
+            triggerIncomingCall(context.applicationContext, callData)
+        }
+    }
 
     private fun addLog(message: String) {
         val currentList = _signalingLogs.value.toMutableList()
