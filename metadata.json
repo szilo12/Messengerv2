@@ -1,0 +1,6 @@
+{
+  "name": "Olyna",
+  "description": "Olyna Messenger with custom immersive outside-the-app incoming call notifications and interactive answer controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
