@@ -16,9 +16,9 @@ import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
 
 object CallNotificationHelper {
-    private const val CHANNEL_ID_VOIP = "olyna_messenger_call_channel_voip_v2"
+    private const val CHANNEL_ID_VOIP = "olyna_messenger_call_channel_voip_v3"
     private const val CHANNEL_NAME_VOIP = "Olyna Lockscreen Calls"
-    private const val CHANNEL_ID_SILENT = "olyna_messenger_call_channel_silent_v2"
+    private const val CHANNEL_ID_SILENT = "olyna_messenger_call_channel_silent_v3"
     private const val CHANNEL_NAME_SILENT = "Olyna Incoming Calls"
     private const val NOTIFICATION_ID = 1001
 
@@ -72,15 +72,13 @@ object CallNotificationHelper {
             }
             notificationManager.createNotificationChannel(voipChannel)
 
-            // Silent/Default Importance Channel (For unlocked state, prevents system heads-up overlap)
+            // Silent/Low Importance Channel (For unlocked state, prevents system heads-up overlap)
             val silentChannel = NotificationChannel(
                 CHANNEL_ID_SILENT,
                 CHANNEL_NAME_SILENT,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Notifies of incoming VoIP calls on Olyna Messenger when unlocked"
-                enableLights(true)
-                enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setSound(null, null)
             }
@@ -150,29 +148,30 @@ object CallNotificationHelper {
 
         // Determine target channel ID and priority based on screen status
         val targetChannelId = if (isLocked) CHANNEL_ID_VOIP else CHANNEL_ID_SILENT
-        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT
+        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_LOW
 
         val builder = NotificationCompat.Builder(context, targetChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(priority)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(false)
             .setOngoing(true)
             .setColor(0xFF6366F1.toInt()) // Indigo theme accent tint
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
-        // Only start the full screen activity if the device screen is locked!
-        // If the device is unlocked, we rely on the custom lebegő hívásablak FloatingCallOverlay.
         if (isLocked) {
+            builder.setCategory(NotificationCompat.CATEGORY_CALL)
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
+            builder.setCustomContentView(remoteViewsCollapsed)
+                .setCustomBigContentView(remoteViewsExpanded)
+                .setCustomHeadsUpContentView(remoteViewsCollapsed)
+                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
         } else {
-            builder.setFullScreenIntent(null, false)
+            // Unlocked state: minimal, silent notification so that the custom Messenger-style floating overlay acts as the caller UI
+            // No custom RemoteViews, no peeking heads-up cards, and no category call or full-screen intent to prevent double prompt.
+            builder.setContentTitle(callData.callerName)
+                .setContentText("Bejövő hívás folyamatban...")
+                .setContentIntent(fullScreenPendingIntent)
         }
-
-        builder.setCustomContentView(remoteViewsCollapsed)
-            .setCustomBigContentView(remoteViewsExpanded)
-            .setCustomHeadsUpContentView(remoteViewsCollapsed)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
 
         val notification = builder.build()
         
