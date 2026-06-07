@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -97,14 +98,37 @@ object CallManager {
             addLog("🔍 [WebRTC] SDPMedia: Verified secure RTP profile with SAVPF streaming.")
         }
 
-        startRinging(context)
-        CallNotificationHelper.showIncomingCallNotification(context, callData)
+        // Delegate incoming call alerting + background persistence to the Foreground CallNotificationService
+        val serviceIntent = Intent(context, CallNotificationService::class.java).apply {
+            action = CallNotificationService.ACTION_START_INCOMING
+            putExtra("caller_name", callData.callerName)
+            putExtra("caller_subtitle", callData.callerSubtitle)
+            putExtra("caller_avatar_color", callData.callerAvatarHexColor)
+            putExtra("call_type", callData.callType.name)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed starting CallNotificationService, using legacy in-process fallback", e)
+            startRingingInternal(context)
+            CallNotificationHelper.showIncomingCallNotification(context, callData)
+        }
     }
 
     fun answerCall(context: Context) {
         Log.d(TAG, "Answering call")
         _callStatus.value = CallStatus.ONGOING
-        stopRinging()
+        
+        // Stop the foreground service
+        val serviceIntent = Intent(context, CallNotificationService::class.java)
+        context.stopService(serviceIntent)
+        
+        // Ensure in-process assets are cleared too
+        stopRingingInternal()
 
         // Simulate local answer generation and interactive peer connection setup
         scope.launch {
@@ -138,7 +162,12 @@ object CallManager {
         Log.d(TAG, "Declining call")
         _callStatus.value = CallStatus.DECLINED
         _currentCall.value = null
-        stopRinging()
+        
+        // Stop foreground service
+        val serviceIntent = Intent(context, CallNotificationService::class.java)
+        context.stopService(serviceIntent)
+
+        stopRingingInternal()
         CallNotificationHelper.cancelNotification(context)
         
         scope.launch {
@@ -154,7 +183,12 @@ object CallManager {
         Log.d(TAG, "Ending call")
         _callStatus.value = CallStatus.IDLE
         _currentCall.value = null
-        stopRinging()
+        
+        // Stop foreground service
+        val serviceIntent = Intent(context, CallNotificationService::class.java)
+        context.stopService(serviceIntent)
+
+        stopRingingInternal()
         CallNotificationHelper.cancelNotification(context)
         
         scope.launch {
@@ -165,9 +199,9 @@ object CallManager {
         }
     }
 
-    private fun startRinging(context: Context) {
+    fun startRingingInternal(context: Context) {
         try {
-            stopRinging()
+            stopRingingInternal()
 
             // Initialize MediaPlayer with default ringtone
             val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -205,7 +239,7 @@ object CallManager {
         }
     }
 
-    private fun stopRinging() {
+    fun stopRingingInternal() {
         try {
             mediaPlayer?.let {
                 if (it.isPlaying) {

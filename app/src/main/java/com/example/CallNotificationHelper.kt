@@ -49,7 +49,7 @@ object CallNotificationHelper {
         return IconCompat.createWithBitmap(bitmap)
     }
 
-    fun showIncomingCallNotification(context: Context, callData: CallData) {
+    fun buildIncomingCallNotification(context: Context, callData: CallData): Notification {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // 1. Create Notification Channel on Android Oreo (API 26) and above
@@ -156,6 +156,12 @@ object CallNotificationHelper {
         // Ensure flag has FLAG_INSISTENT (to ring continuously until dismissed)
         notification.flags = notification.flags or Notification.FLAG_INSISTENT
 
+        return notification
+    }
+
+    fun showIncomingCallNotification(context: Context, callData: CallData) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notification = buildIncomingCallNotification(context, callData)
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
