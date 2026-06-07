@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -21,6 +24,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +43,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +72,16 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Figyelem! Engedély híján bejövő hívások nem fognak ringatni.", Toast.LENGTH_LONG).show()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CallManager.isAppInForeground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        CallManager.isAppInForeground = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -277,6 +295,9 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onDeclineMessageRequest = {
                                             chatViewModel.rejectMessageRequest(user.id)
+                                        },
+                                        onUpdateCustomCall = { ringtone, vibration ->
+                                            chatViewModel.updateCustomCallSettings(user.id, ringtone, vibration)
                                         }
                                     )
                                 } else {
@@ -352,10 +373,14 @@ class MainActivity : ComponentActivity() {
 
     private fun checkNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            isNotificationPermissionGranted.value = ContextCompat.checkSelfPermission(
+            val isGranted = ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
+            isNotificationPermissionGranted.value = isGranted
+            if (!isGranted) {
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         } else {
             isNotificationPermissionGranted.value = true
         }
@@ -1096,7 +1121,6 @@ fun SettingsTabScreen(
                 }
                 Text("Backend Host: https://olyna-messenger.onrender.com", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                 Text("Firebase Config Status: AKTÍV csevegéshez", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
-                Text("Signaling Token ID: b488-95ce-41b0-8a5a", color = Color.White.copy(alpha = 0.3f), fontSize = 10.sp)
             }
         }
     }
@@ -1112,21 +1136,53 @@ fun ChatDetailScreen(
     onTriggerImmediateCall: () -> Unit,
     onTriggerScheduledCall: (Int) -> Unit,
     onAcceptMessageRequest: () -> Unit,
-    onDeclineMessageRequest: () -> Unit
+    onDeclineMessageRequest: () -> Unit,
+    onUpdateCustomCall: (String, String) -> Unit = { _, _ -> }
 ) {
     var textInput by remember { mutableStateOf("") }
+    var showCustomCallDialog by remember { mutableStateOf(false) }
     val isRequest = !user.isFriend
+    
+    // Limit to load max 100 messages initially ("száz beszélgetés után ne töltse be a regényeket csak ha visszamegyünk")
+    var messageLimit by remember { mutableStateOf(100) }
+    
+    LaunchedEffect(user.id) {
+        messageLimit = 100
+    }
+
+    val displayedMessages = remember(messages, messageLimit) {
+        messages.takeLast(messageLimit)
+    }
+
+    val listState = rememberLazyListState()
+
+    // Scroll to bottom when opening the chat
+    LaunchedEffect(user.id) {
+        if (displayedMessages.isNotEmpty()) {
+            listState.scrollToItem(displayedMessages.size - 1)
+        }
+    }
+
+    // Scroll to bottom when a new message is sent or received (meaning the absolute last message ID changes)
+    var lastMsgId by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(messages) {
+        val lastId = messages.lastOrNull()?.id
+        if (lastId != null && lastId != lastMsgId) {
+            listState.animateScrollToItem(displayedMessages.size - 1)
+            lastMsgId = lastId
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(Color.Black)
     ) {
         // Appbar header styled like Facebook Messenger
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1E293B))
+                .background(Color.Black)
                 .padding(horizontal = 8.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1135,33 +1191,230 @@ fun ChatDetailScreen(
             }
 
             UserAvatar(
-                                                name = user.name,
-                                                avatarColor = user.avatarColor,
-                                                avatarUrl = user.avatarUrl,
-                                                size = 40.dp,
-                                                showActiveDot = (user.status == "Aktív most" && !isRequest)
-                                            )
+                name = user.name,
+                avatarColor = user.avatarColor,
+                avatarUrl = user.avatarUrl,
+                size = 38.dp,
+                showActiveDot = (user.status == "Aktív most" && !isRequest)
+            )
 
             Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(user.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = if (isRequest) "Engedélykérés" else if (stealthActive) "Láthatatlan hívó" else user.status,
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp
+                    user.name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            // Quick Call Triggers
+            // Chat Info options menu representing Messenger info screen (calls kept here clean)
             if (!isRequest) {
-                IconButton(onClick = onTriggerImmediateCall) {
-                    Icon(Icons.Rounded.Videocam, contentDescription = "Hívás most", tint = Color(0xFF0084FF))
-                }
-                IconButton(onClick = { onTriggerScheduledCall(5) }) {
-                    Icon(Icons.Rounded.Schedule, contentDescription = "Hívás 5s mulva", tint = Color(0xFF0084FF))
+                var showMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Rounded.Info, contentDescription = "Infó", tint = Color(0xFF0084FF))
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(Color(0xFF1E293B))
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Hívás indítása 📞", color = Color.White, fontSize = 14.sp) },
+                            onClick = {
+                                showMenu = false
+                                onTriggerImmediateCall()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Hívás 1s múlva ⏰", color = Color.White, fontSize = 14.sp) },
+                            onClick = {
+                                showMenu = false
+                                onTriggerScheduledCall(1)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Hívás 5s múlva ⏰", color = Color.White, fontSize = 14.sp) },
+                            onClick = {
+                                showMenu = false
+                                onTriggerScheduledCall(5)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Egyedi hang & rezgés 🎵", color = Color.White, fontSize = 14.sp) },
+                            onClick = {
+                                showMenu = false
+                                showCustomCallDialog = true
+                            }
+                        )
+                    }
                 }
             }
+        }
+
+        // Custom Call Settings Dialog
+        if (showCustomCallDialog) {
+            val context = LocalContext.current
+            var selectedRingtone by remember { mutableStateOf(user.customRingtone) }
+            var selectedVibration by remember { mutableStateOf(user.customVibration) }
+
+            AlertDialog(
+                onDismissRequest = { showCustomCallDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = Color(0xFF0084FF))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Egyedi hívásbeállítások", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            "${user.name} számára egyedi csengőhangot és rezgési mintát állíthatsz be.",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 12.sp
+                        )
+
+                        // Ringtone Selection Card
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Csengőhang dallama", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            val ringtones = listOf("Alapértelmezett", "Klasszikus dallam", "Neon dallam", "Lágy ütem", "Szirén csengő")
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ringtones.forEach { r ->
+                                    val active = selectedRingtone == r
+                                    FilterChip(
+                                        selected = active,
+                                        onClick = { selectedRingtone = r },
+                                        label = { Text(r, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF0084FF),
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color(0xFF1E293B),
+                                            labelColor = Color.White.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Vibration Selection Card
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Rezgési ritmus", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            val vibrations = listOf("Alapértelmezett", "Szuper Gyors", "Szívverés", "SOS Jelzés", "Egyenletes Hosszú")
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                vibrations.forEach { v ->
+                                    val active = selectedVibration == v
+                                    FilterChip(
+                                        selected = active,
+                                        onClick = { selectedVibration = v },
+                                        label = { Text(v, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF0084FF),
+                                            selectedLabelColor = Color.White,
+                                            containerColor = Color(0xFF1E293B),
+                                            labelColor = Color.White.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Preview Button
+                        Button(
+                            onClick = {
+                                Toast.makeText(context, "Minta hanglejátszás és rezgés...", Toast.LENGTH_SHORT).show()
+                                
+                                // Clean up any active beeper
+                                if (selectedRingtone != "Alapértelmezett") {
+                                    try {
+                                        val gen = android.media.ToneGenerator(android.media.AudioManager.STREAM_RING, 100)
+                                        when (selectedRingtone) {
+                                            "Klasszikus dallam" -> gen.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE, 600)
+                                            "Neon dallam" -> {
+                                                gen.startTone(android.media.ToneGenerator.TONE_DTMF_D, 150)
+                                            }
+                                            "Lágy ütem" -> gen.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 300)
+                                            "Szirén csengő" -> gen.startTone(android.media.ToneGenerator.TONE_SUP_ERROR, 350)
+                                        }
+                                        // Auto release after sound finishes
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            try { gen.release() } catch (ex: Exception) {}
+                                        }, 1000)
+                                    } catch (e: Exception) {
+                                        Log.e("Preview", "Error playing tone", e)
+                                    }
+                                } else {
+                                    try {
+                                        val gen = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 80)
+                                        gen.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 200)
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            try { gen.release() } catch (ex: Exception) {}
+                                        }, 500)
+                                    } catch (e: Exception) {}
+                                }
+                                
+                                // Vibration preview
+                                try {
+                                    val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                                    val pat = when (selectedVibration) {
+                                        "Szuper Gyors" -> longArrayOf(0, 150, 150, 150)
+                                        "Szívverés" -> longArrayOf(0, 150, 150, 150, 400, 150, 150, 150)
+                                        "SOS Jelzés" -> longArrayOf(0, 200, 100, 200, 300, 400, 100, 400)
+                                        "Egyenletes Hosszú" -> longArrayOf(0, 600, 200, 600)
+                                        else -> longArrayOf(0, 400)
+                                    }
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        vib?.vibrate(android.os.VibrationEffect.createWaveform(pat, -1))
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        vib?.vibrate(pat, -1)
+                                    }
+                                } catch (e: Exception) {}
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Rounded.VolumeUp, contentDescription = null, tint = Color(0xFF10B981))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Tesztelés 🔊", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onUpdateCustomCall(selectedRingtone, selectedVibration)
+                            showCustomCallDialog = false
+                            Toast.makeText(context, "Sikeresen elmentve!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0084FF))
+                    ) {
+                        Text("Mentés", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCustomCallDialog = false }) {
+                        Text("Mégse", color = Color.White.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = Color(0xFF111827)
+            )
         }
 
         // Action banners for requests or stealth
@@ -1194,41 +1447,143 @@ fun ChatDetailScreen(
 
         // Messages Bubble Stream
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
         ) {
-            items(messages) { msg ->
-                val isMe = msg.senderId == "me"
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
+            // Profile Info Header inside list scroll content (so it scrolls with chat exactly as in Messenger)
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (!isMe) {
-                        UserAvatar(
-                            name = user.name,
-                            avatarColor = user.avatarColor,
-                            avatarUrl = user.avatarUrl,
-                            size = 28.dp
-                        )
-                    }
-
+                    UserAvatar(
+                        name = user.name,
+                        avatarColor = user.avatarColor,
+                        avatarUrl = user.avatarUrl,
+                        size = 96.dp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = user.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                     Box(
                         modifier = Modifier
-                            .clip(
-                                RoundedCornerShape(
-                                    topStart = 16.dp,
-                                    topEnd = 16.dp,
-                                    bottomStart = if (isMe) 16.dp else 4.dp,
-                                    bottomEnd = if (isMe) 4.dp else 16.dp
-                                )
-                            )
-                            .background(if (isMe) Color(0xFF0084FF) else Color(0xFF334155))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF242526))
+                            .clickable { /* open profile view or details */ }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Text(msg.content, color = Color.White, fontSize = 14.sp)
+                        Text(
+                            text = "Profil megtekintése",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Text(
+                        text = buildAnnotatedString {
+                            append("🔒 Az üzeneteket és a hívásokat végpontok közötti titkosítás védi. Csak az ebben a chatben részt vevők tudják elolvasni, meghallgatni vagy megosztani őket. ")
+                            withStyle(style = androidx.compose.ui.text.SpanStyle(color = Color(0xFF0084FF))) {
+                                append("További információ")
+                            }
+                        },
+                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "11:43",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
+
+            // Load more option if there are more older messages
+            if (messages.size > messageLimit) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TextButton(onClick = { messageLimit += 100 }) {
+                            Text(
+                                "Korábbi üzenetek betöltése...",
+                                color = Color(0xFF0084FF),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
+            items(displayedMessages.size) { index ->
+                val msg = displayedMessages[index]
+                val isMe = msg.senderId == "me"
+                val isLastMsg = index == displayedMessages.size - 1
+                
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        if (!isMe) {
+                            UserAvatar(
+                                name = user.name,
+                                avatarColor = user.avatarColor,
+                                avatarUrl = user.avatarUrl,
+                                size = 28.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 18.dp,
+                                        topEnd = 18.dp,
+                                        bottomStart = if (isMe) 18.dp else 4.dp,
+                                        bottomEnd = if (isMe) 4.dp else 18.dp
+                                    )
+                                )
+                                .background(if (isMe) Color(0xFF0084FF) else Color(0xFF242526))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(msg.content, color = Color.White, fontSize = 15.sp)
+                        }
+                    }
+                    if (isMe && isLastMsg) {
+                        Text(
+                            text = "Elküldve",
+                            color = Color.White.copy(alpha = 0.4f),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp, end = 4.dp)
+                        )
                     }
                 }
             }
@@ -1273,42 +1628,68 @@ fun ChatDetailScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1E293B))
-                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                    .background(Color.Black)
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.EmojiEmotions, contentDescription = null, tint = Color(0xFF0084FF), modifier = Modifier.padding(horizontal = 6.dp))
-                Icon(Icons.Filled.Image, contentDescription = null, tint = Color(0xFF0084FF), modifier = Modifier.padding(horizontal = 6.dp))
+                if (textInput.isEmpty()) {
+                    IconButton(onClick = { /* plus attachments */ }) {
+                        Icon(Icons.Filled.AddCircle, contentDescription = "Csatolmányok", tint = Color(0xFF0084FF))
+                    }
+                    IconButton(onClick = { /* camera */ }) {
+                        Icon(Icons.Filled.PhotoCamera, contentDescription = "Kamera", tint = Color(0xFF0084FF))
+                    }
+                    IconButton(onClick = { /* gallery */ }) {
+                        Icon(Icons.Filled.Image, contentDescription = "Képek", tint = Color(0xFF0084FF))
+                    }
+                    IconButton(onClick = { /* microphone */ }) {
+                        Icon(Icons.Filled.Mic, contentDescription = "Hang", tint = Color(0xFF0084FF))
+                    }
+                } else {
+                    IconButton(onClick = { /* expand chevron */ }) {
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Továbbiak", tint = Color(0xFF0084FF))
+                    }
+                }
 
                 OutlinedTextField(
                     value = textInput,
                     onValueChange = { textInput = it },
-                    placeholder = { Text("Üzenet írása...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp) },
+                    placeholder = { Text("Üzenet", color = Color.White.copy(alpha = 0.45f), fontSize = 15.sp) },
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 6.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    maxLines = 3,
+                        .padding(horizontal = 4.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 4,
+                    trailingIcon = {
+                        IconButton(onClick = { /* emoji list */ }) {
+                            Icon(Icons.Filled.EmojiEmotions, contentDescription = "Hangulatjelek", tint = Color(0xFF0084FF))
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF0F172A),
-                        unfocusedContainerColor = Color(0xFF0F172A),
-                        focusedBorderColor = Color(0xFF0084FF),
+                        focusedContainerColor = Color(0xFF242526),
+                        unfocusedContainerColor = Color(0xFF242526),
+                        focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     )
                 )
 
-                IconButton(
-                    onClick = {
-                        if (textInput.isNotBlank()) {
-                            onSendMessage(textInput)
-                            textInput = ""
+                if (textInput.isEmpty()) {
+                    IconButton(onClick = { onSendMessage("👍") }) {
+                        Icon(Icons.Filled.ThumbUp, contentDescription = "Lájk", tint = Color(0xFF0084FF))
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            if (textInput.isNotBlank()) {
+                                onSendMessage(textInput)
+                                textInput = ""
+                            }
                         }
-                    },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(Icons.Rounded.Send, contentDescription = "Send", tint = Color(0xFF0084FF))
+                    ) {
+                        Icon(Icons.Rounded.Send, contentDescription = "Küldés", tint = Color(0xFF0084FF))
+                    }
                 }
             }
         }

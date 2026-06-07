@@ -9,6 +9,11 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class CallNotificationService : Service() {
 
@@ -18,9 +23,21 @@ class CallNotificationService : Service() {
         const val ACTION_STOP = "com.example.ACTION_STOP"
     }
 
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "CallNotificationService created")
+        
+        serviceScope.launch {
+            CallManager.callStatus.collect { status ->
+                Log.d(TAG, "Observed call status in service: $status")
+                if (status != CallStatus.INCOMING) {
+                    stopForegroundAndRelease()
+                    stopSelf()
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -60,11 +77,24 @@ class CallNotificationService : Service() {
                     startForeground(1001, notification)
                 }
             } catch (e: SecurityException) {
-                Log.e(TAG, "Android 14+ Phone Call service permission issue, fallback to basic startForeground", e)
-                startForeground(1001, notification)
+                Log.e(TAG, "Android 14+ Call service permission fallback", e)
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        startForeground(1001, notification)
+                    }
+                } catch (ex: Exception) {
+                    Log.e(TAG, "Critical failure starting foreground service", ex)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Unhandled error starting foreground", e)
-                startForeground(1001, notification)
+                try {
+                    startForeground(1001, notification)
+                } catch (ex: Exception) {
+                    Log.e(TAG, "Critical: fully failed starting foreground", ex)
+                }
             }
 
             // Play Ringtone and Start Vibration via centralized CallManager
@@ -90,6 +120,7 @@ class CallNotificationService : Service() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         stopForegroundAndRelease()
         super.onDestroy()
         Log.d(TAG, "CallNotificationService destroyed")

@@ -62,6 +62,8 @@ object CallManager {
     private val _schedulerSecondsLeft = MutableStateFlow(0)
     val schedulerSecondsLeft: StateFlow<Int> = _schedulerSecondsLeft.asStateFlow()
 
+    var isAppInForeground: Boolean = false
+
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
 
@@ -174,6 +176,7 @@ object CallManager {
 
     fun declineCall(context: Context) {
         Log.d(TAG, "Declining call")
+        val activeCall = _currentCall.value
         _callStatus.value = CallStatus.DECLINED
         _currentCall.value = null
         
@@ -183,6 +186,39 @@ object CallManager {
 
         stopRingingInternal()
         CallNotificationHelper.cancelNotification(context)
+        
+        // Auto-insert a missed/declined call record in Room chat database
+        if (activeCall != null) {
+            scope.launch {
+                try {
+                    val db = androidx.room.Room.databaseBuilder(
+                        context.applicationContext,
+                        com.example.data.AppDatabase::class.java,
+                        "olyna_messenger_db"
+                    ).fallbackToDestructiveMigration().build()
+                    
+                    val callerId = when {
+                        activeCall.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
+                        activeCall.callerName.contains("Szilárd", ignoreCase = true) -> "szilard"
+                        activeCall.callerName.contains("Anya", ignoreCase = true) || activeCall.callerName.contains("Család", ignoreCase = true) -> "anyuka"
+                        else -> "olyna"
+                    }
+                    
+                    val callLogMessage = com.example.data.DbMessage(
+                        senderId = callerId,
+                        receiverId = "me",
+                        content = if (activeCall.callType == CallType.VIDEO) "Nem fogadott videóhívás" else "Nem fogadott hanghívás",
+                        timestamp = System.currentTimeMillis(),
+                        isRead = false,
+                        isAccepted = true
+                    )
+                    db.chatDao().insertMessage(callLogMessage)
+                    db.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed inserting call decline log", e)
+                }
+            }
+        }
         
         scope.launch {
             _signalingState.value = SignalingState.DISCONNECTED
@@ -195,6 +231,7 @@ object CallManager {
 
     fun endCall(context: Context) {
         Log.d(TAG, "Ending call")
+        val activeCall = _currentCall.value
         _callStatus.value = CallStatus.IDLE
         _currentCall.value = null
         
@@ -204,6 +241,39 @@ object CallManager {
 
         stopRingingInternal()
         CallNotificationHelper.cancelNotification(context)
+
+        // Auto-insert an ongoing call log in Room chat database to show complete call history
+        if (activeCall != null) {
+            scope.launch {
+                try {
+                    val db = androidx.room.Room.databaseBuilder(
+                        context.applicationContext,
+                        com.example.data.AppDatabase::class.java,
+                        "olyna_messenger_db"
+                    ).fallbackToDestructiveMigration().build()
+                    
+                    val callerId = when {
+                        activeCall.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
+                        activeCall.callerName.contains("Szilárd", ignoreCase = true) -> "szilard"
+                        activeCall.callerName.contains("Anya", ignoreCase = true) || activeCall.callerName.contains("Család", ignoreCase = true) -> "anyuka"
+                        else -> "olyna"
+                    }
+                    
+                    val callLogMessage = com.example.data.DbMessage(
+                        senderId = "me",
+                        receiverId = callerId,
+                        content = if (activeCall.callType == CallType.VIDEO) "Videóhívás véget ért" else "Hanghívás véget ért",
+                        timestamp = System.currentTimeMillis(),
+                        isRead = true,
+                        isAccepted = true
+                    )
+                    db.chatDao().insertMessage(callLogMessage)
+                    db.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed inserting end call log", e)
+                }
+            }
+        }
         
         scope.launch {
             _signalingState.value = SignalingState.DISCONNECTED
@@ -213,48 +283,151 @@ object CallManager {
         }
     }
 
+    private var toneGenerator: android.media.ToneGenerator? = null
+    private var toneJob: kotlinx.coroutines.Job? = null
+
     fun startRingingInternal(context: Context) {
-        try {
-            stopRingingInternal()
+        stopRingingInternal()
 
-            // Initialize MediaPlayer with default ringtone
-            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(context, ringtoneUri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                isLooping = true
-                prepare()
-                start()
+        // Launch async job on IO to fetch user settings, then configure call ringing
+        scope.launch(Dispatchers.IO) {
+            var customRingtone = "Alapértelmezett"
+            var customVibration = "Alapértelmezett"
+
+            val callData = _currentCall.value
+            if (callData != null) {
+                try {
+                    val db = androidx.room.Room.databaseBuilder(
+                        context.applicationContext,
+                        com.example.data.AppDatabase::class.java,
+                        "olyna_messenger_db"
+                    ).fallbackToDestructiveMigration().build()
+                    
+                    val callerId = when {
+                        callData.callerName.contains("Olyna", ignoreCase = true) -> "olyna"
+                        callData.callerName.contains("Szilárd", ignoreCase = true) -> "szilard"
+                        callData.callerName.contains("Anya", ignoreCase = true) || callData.callerName.contains("Család", ignoreCase = true) -> "anyuka"
+                        else -> "olyna"
+                    }
+                    val user = db.chatDao().getUserById(callerId)
+                    if (user != null) {
+                        customRingtone = user.customRingtone
+                        customVibration = user.customVibration
+                    }
+                    db.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error checking user call settings from Db", e)
+                }
             }
 
-            // Start vibration
-            vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vibratorManager?.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            }
+            // Bring sound/vibration setups of the selected values back onto the main loop
+            scope.launch(Dispatchers.Main) {
+                Log.d(TAG, "Applying ringtone: $customRingtone, vibration: $customVibration for incoming call")
+                
+                // Sound setup
+                if (customRingtone == "Alapértelmezett") {
+                    try {
+                        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                        mediaPlayer = MediaPlayer().apply {
+                            setDataSource(context, ringtoneUri)
+                            setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                    .build()
+                            )
+                            isLooping = true
+                            prepare()
+                            start()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error playing default ringtone", e)
+                    }
+                } else {
+                    // Start synthesized melody beep thread
+                    playCustomToneMelody(customRingtone)
+                }
 
-            val pattern = longArrayOf(0, 1000, 1000, 1000) // Vibrate 1s, pause 1s
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, 0)
+                // Vibration setup
+                try {
+                    @Suppress("DEPRECATION")
+                    vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    
+                    val pattern = getVibrationPattern(customVibration)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator?.vibrate(pattern, 0)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error vibrating", e)
+                }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error playing ringtone or vibrating", e)
+        }
+    }
+
+    private fun getVibrationPattern(vibrationName: String): LongArray {
+        return when (vibrationName) {
+            "Szuper Gyors" -> longArrayOf(0, 150, 150, 150, 150, 150)
+            "Szívverés" -> longArrayOf(0, 150, 150, 150, 500, 150, 150, 150, 500)
+            "SOS Jelzés" -> longArrayOf(0, 200, 150, 200, 150, 200, 300, 450, 150, 450, 150, 450, 300, 200, 150, 200, 150, 200, 600)
+            "Egyenletes Hosszú" -> longArrayOf(0, 2500, 1000, 2500)
+            else -> longArrayOf(0, 1000, 1000, 1000) // Alapértelmezett
+        }
+    }
+
+    private fun playCustomToneMelody(ringtoneName: String) {
+        toneJob?.cancel()
+        toneJob = scope.launch(Dispatchers.Default) {
+            try {
+                val generator = android.media.ToneGenerator(android.media.AudioManager.STREAM_RING, 100)
+                toneGenerator = generator
+                while (_callStatus.value == CallStatus.INCOMING) {
+                    when (ringtoneName) {
+                        "Klasszikus dallam" -> {
+                            generator.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE, 800)
+                            delay(2000)
+                        }
+                        "Neon dallam" -> {
+                            generator.startTone(android.media.ToneGenerator.TONE_DTMF_D, 150)
+                            delay(200)
+                            generator.startTone(android.media.ToneGenerator.TONE_DTMF_A, 150)
+                            delay(250)
+                            generator.startTone(android.media.ToneGenerator.TONE_DTMF_9, 200)
+                            delay(1500)
+                        }
+                        "Lágy ütem" -> {
+                            generator.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 300)
+                            delay(500)
+                            generator.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 300)
+                            delay(1800)
+                        }
+                        "Szirén csengő" -> {
+                            generator.startTone(android.media.ToneGenerator.TONE_SUP_ERROR, 500)
+                            delay(1000)
+                        }
+                        else -> {
+                            delay(1000)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in custom tone playing", e)
+            } finally {
+                toneGenerator?.release()
+                toneGenerator = null
+            }
         }
     }
 
     fun stopRingingInternal() {
         try {
+            toneJob?.cancel()
+            toneJob = null
+            toneGenerator?.release()
+            toneGenerator = null
+
             mediaPlayer?.let {
                 if (it.isPlaying) {
                     it.stop()

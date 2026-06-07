@@ -581,6 +581,14 @@ fun OngoingCallScreen(
     var isSpeakerOn by remember { mutableStateOf(true) }
     var isCameraFront by remember { mutableStateOf(true) }
     
+    var audioRoute by remember { mutableStateOf("Hangszóró") }
+    var connectionStateIndex by remember { mutableIntStateOf(0) }
+    val connectionStates = listOf(
+        Triple("Kapcsolódás...", Color(0xFFF59E0B), Icons.Rounded.Autorenew),
+        Triple("Gyenge internetkapcsolat", Color(0xFFEF4444), Icons.Rounded.SignalWifiBad),
+        Triple("Kiváló kapcsolat", Color(0xFF10B981), Icons.Rounded.SignalWifi4Bar)
+    )
+    
     // Aesthetic Filters: 0: None, 1: Neon Glow, 2: Deep Space, 3: Office
     var activeFilterIndex by remember { mutableIntStateOf(0) }
     val filters = listOf("Valós", "Neon Glow 🎆", "Mély Űr 🚀", "Iroda ☕")
@@ -602,6 +610,14 @@ fun OngoingCallScreen(
         val mins = callSeconds / 60
         val secs = callSeconds % 60
         String.format("%02d:%02d", mins, secs)
+    }
+
+    LaunchedEffect(callSeconds) {
+        // Auto transition over time to showcase all connection states!
+        if (callSeconds == 1) connectionStateIndex = 0 // Kapcsolódás
+        if (callSeconds == 5) connectionStateIndex = 2 // Kiváló kapcsolat
+        if (callSeconds == 12) connectionStateIndex = 1 // Gyenge internetkapcsolat
+        if (callSeconds == 20) connectionStateIndex = 2 // Back to stable
     }
 
     // Active audio soundwave/equalizer simulation
@@ -869,6 +885,48 @@ fun OngoingCallScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Real-time Connection Quality & Signaling Status Badge (Tap to cycle manually for testing!)
+            val currentQuality = connectionStates[connectionStateIndex]
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(currentQuality.second.copy(alpha = 0.15f))
+                    .border(1.dp, currentQuality.second.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .clickable {
+                        connectionStateIndex = (connectionStateIndex + 1) % connectionStates.size
+                    }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = currentQuality.third,
+                    contentDescription = null,
+                    tint = currentQuality.second,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = currentQuality.first,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = when(connectionStateIndex) {
+                            0 -> "Jelzések csatlakoztatása..."
+                            1 -> "Gyenge internetkapcsolat. Kevesebb sávszélesség."
+                            else -> "Nagyszerű hálózati minőség. HD Videó aktív."
+                        },
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 9.sp
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             WebRTCSignalingHUD(
@@ -1035,19 +1093,26 @@ fun OngoingCallScreen(
                         }
                     }
 
-                    // Toggle Speaker Sound
+                    // Audio output route selector (Speaker / Earphone Switcher)
+                    val isSpeaker = audioRoute == "Hangszóró"
                     IconButton(
-                        onClick = { isSpeakerOn = !isSpeakerOn },
+                        onClick = {
+                            audioRoute = if (isSpeaker) "Fülhallgató/Fejhallgató" else "Hangszóró"
+                            android.widget.Toast.makeText(
+                                context,
+                                "Hangkimenet váltva: $audioRoute",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
                         colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = if (!isSpeakerOn) Color(0xFF475569) else Color.White.copy(alpha = 0.1f),
+                            containerColor = if (isSpeaker) Color(0xFF0084FF) else Color.White.copy(alpha = 0.12f),
                             contentColor = Color.White
                         ),
                         modifier = Modifier.size(46.dp)
                     ) {
-                        @Suppress("DEPRECATION")
                         Icon(
-                            imageVector = if (isSpeakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeMute,
-                            contentDescription = "Toggle Speaker"
+                            imageVector = if (isSpeaker) Icons.Rounded.VolumeUp else Icons.Rounded.Headset,
+                            contentDescription = "Hangkimenet váltása"
                         )
                     }
 

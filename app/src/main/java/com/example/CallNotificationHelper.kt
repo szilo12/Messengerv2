@@ -20,7 +20,7 @@ object CallNotificationHelper {
     private const val CHANNEL_NAME = "Olyna Incoming Calls"
     private const val NOTIFICATION_ID = 1001
 
-    private fun createAvatarIcon(context: Context, name: String, hexColor: Long): IconCompat {
+    private fun createAvatarIconBitmap(context: Context, name: String, hexColor: Long): Bitmap {
         val size = 120 // Perfect size for system notifications
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -46,7 +46,7 @@ object CallNotificationHelper {
         val yPos = (size / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f)
         canvas.drawText(initial, size / 2f, yPos, textPaint)
         
-        return IconCompat.createWithBitmap(bitmap)
+        return bitmap
     }
 
     fun buildIncomingCallNotification(context: Context, callData: CallData): Notification {
@@ -108,48 +108,58 @@ object CallNotificationHelper {
             flagMutable
         )
 
-        // 4. Build modern dynamic rounded profile avatar
-        val avatarIcon = createAvatarIcon(context, callData.callerName, callData.callerAvatarHexColor)
-        val callerPerson = Person.Builder()
-            .setName(callData.callerName)
-            .setIcon(avatarIcon)
-            .setImportant(true)
-            .build()
+        // 4. Create custom RemoteViews with responsive layout bindings
+        val avatarBitmap = createAvatarIconBitmap(context, callData.callerName, callData.callerAvatarHexColor)
 
-        // 5. Use CallStyle for modern full-screen and heads-up styling
-        val callStyle = NotificationCompat.CallStyle.forIncomingCall(
-            callerPerson,
-            declinePendingIntent,
-            answerPendingIntent
-        )
+        val remoteViewsCollapsed = android.widget.RemoteViews(context.packageName, R.layout.custom_call_notification_collapsed).apply {
+            setTextViewText(R.id.notification_title, callData.callerName)
+            setTextViewText(R.id.notification_subtitle, callData.callerSubtitle)
+            setImageViewBitmap(R.id.notification_avatar, avatarBitmap)
+            
+            setOnClickPendingIntent(R.id.btn_accept, answerPendingIntent)
+            setOnClickPendingIntent(R.id.btn_decline, declinePendingIntent)
+        }
+
+        val remoteViewsExpanded = android.widget.RemoteViews(context.packageName, R.layout.custom_call_notification_expanded).apply {
+            setTextViewText(R.id.notification_title, callData.callerName)
+            setTextViewText(R.id.notification_subtitle, callData.callerSubtitle)
+            setImageViewBitmap(R.id.notification_avatar, avatarBitmap)
+            
+            setOnClickPendingIntent(R.id.btn_accept, answerPendingIntent)
+            setOnClickPendingIntent(R.id.btn_decline, declinePendingIntent)
+        }
+
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        val isLocked = keyguardManager?.isKeyguardLocked == true
+        val isBackground = !CallManager.isAppInForeground
+
+        val priority = if (isBackground) {
+            NotificationCompat.PRIORITY_MAX
+        } else {
+            NotificationCompat.PRIORITY_LOW // Prevent peeking/double-popup when inside the app
+        }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(callData.callerName)
-            .setContentText(callData.callerSubtitle)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(false)
             .setOngoing(true)
-            .setColor(0xFFF472B6.toInt()) // Soft pink matching theme
-            .setColorized(true)
+            .setColor(0xFF6366F1.toInt()) // Indigo theme accent tint
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setStyle(callStyle)
 
-        // Register actions for backwards compatibility on pre-S versions
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "Elutasítás",
-                declinePendingIntent
-            )
-            builder.addAction(
-                android.R.drawable.sym_action_call,
-                "Fogadás",
-                answerPendingIntent
-            )
+        // Only start the full screen activity if the device screen is locked!
+        // If the device is unlocked (whether in another app or our app), we show only the heads-up notification.
+        if (isLocked) {
+            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+        } else {
+            builder.setFullScreenIntent(null, false)
         }
+
+        builder.setCustomContentView(remoteViewsCollapsed)
+            .setCustomBigContentView(remoteViewsExpanded)
+            .setCustomHeadsUpContentView(remoteViewsCollapsed)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
 
         val notification = builder.build()
         

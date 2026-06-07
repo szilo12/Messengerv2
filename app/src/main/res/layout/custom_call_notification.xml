@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="80dp"
+    android:background="#0F172A"
+    android:padding="8dp">
+
+    <!-- Caller Avatar -->
+    <ImageView
+        android:id="@+id/notif_avatar"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="8dp"
+        android:contentDescription="Avatar" />
+
+    <!-- Action Buttons on the far right -->
+    <LinearLayout
+        android:id="@+id/notif_buttons_container"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:layout_marginEnd="4dp">
+
+        <!-- Decline Button -->
+        <ImageButton
+            android:id="@+id/btn_decline"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_btn_decline"
+            android:src="@drawable/ic_call_decline"
+            android:scaleType="centerInside"
+            android:contentDescription="Decline Call"
+            style="?android:attr/borderlessButtonStyle" />
+
+        <!-- Accept Button -->
+        <ImageButton
+            android:id="@+id/btn_accept"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_btn_accept"
+            android:src="@drawable/ic_call_accept"
+            android:scaleType="centerInside"
+            android:contentDescription="Accept Call"
+            style="?android:attr/borderlessButtonStyle" />
+
+    </LinearLayout>
+
+    <!-- Text Information in the center -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_toEndOf="@id/notif_avatar"
+        android:layout_toStartOf="@id/notif_buttons_container"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/notif_caller_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Caller Name"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:ellipsize="end"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/notif_call_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Bejövő hívás..."
+            android:textColor="#94A3B8"
+            android:textSize="13sp"
+            android:ellipsize="end"
+            android:singleLine="true" />
+
+    </LinearLayout>
+
+</RelativeLayout>

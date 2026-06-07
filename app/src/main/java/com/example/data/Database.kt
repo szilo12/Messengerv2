@@ -13,7 +13,9 @@ data class User(
     val isRequestSent: Boolean,
     val isRequestReceived: Boolean,
     val isSelf: Boolean = false,
-    val avatarUrl: String? = null
+    val avatarUrl: String? = null,
+    val customRingtone: String = "Alapértelmezett",
+    val customVibration: String = "Alapértelmezett"
 )
 
 @Entity(tableName = "messages")
@@ -75,9 +77,12 @@ interface ChatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSettings(settings: UserSettings)
+
+    @Query("UPDATE users SET customRingtone = :ringtone, customVibration = :vibration WHERE id = :userId")
+    suspend fun updateCustomCallSettings(userId: String, ringtone: String, vibration: String)
 }
 
-@Database(entities = [User::class, DbMessage::class, UserSettings::class], version = 2, exportSchema = false)
+@Database(entities = [User::class, DbMessage::class, UserSettings::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
 }

@@ -127,4 +127,8 @@ class ChatRepository(context: Context) {
     suspend fun markAsRead(senderId: String) {
         dao.markMessagesAsRead(senderId, "me")
     }
+
+    suspend fun updateCustomCallSettings(userId: String, ringtone: String, vibration: String) {
+        dao.updateCustomCallSettings(userId, ringtone, vibration)
+    }
 }

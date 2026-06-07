@@ -137,4 +137,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             repository.updateUserProfile(name, avatarUrl)
         }
     }
+
+    fun updateCustomCallSettings(userId: String, ringtone: String, vibration: String) {
+        viewModelScope.launch {
+            repository.updateCustomCallSettings(userId, ringtone, vibration)
+        }
+    }
 }
