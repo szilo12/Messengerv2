@@ -10,8 +10,31 @@ import kotlinx.coroutines.launch
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ChatRepository(application)
 
-    val allUsers: StateFlow<List<User>> = repository.allUsersFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val isFirebaseLoggedIn = MutableStateFlow(FirebaseManager.auth?.currentUser != null)
+    val firebaseUserEmail = MutableStateFlow(FirebaseManager.auth?.currentUser?.email)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allUsers: StateFlow<List<User>> = isFirebaseLoggedIn.flatMapLatest { loggedIn ->
+        if (loggedIn) {
+            combine(
+                repository.allUsersFlow,
+                FirebaseManager.observeUsers()
+            ) { local, firebase ->
+                val combined = local.toMutableList()
+                firebase.forEach { fbUser ->
+                    val existingIdx = combined.indexOfFirst { it.id == fbUser.id }
+                    if (existingIdx != -1) {
+                        combined[existingIdx] = fbUser
+                    } else {
+                        combined.add(fbUser)
+                    }
+                }
+                combined
+            }
+        } else {
+            repository.allUsersFlow
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allMessages: StateFlow<List<DbMessage>> = repository.allMessagesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -23,12 +46,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val selectedUser: StateFlow<User?> = _selectedUser.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val activeChatMessages: StateFlow<List<DbMessage>> = _selectedUser
-        .flatMapLatest { user ->
-            if (user == null) flowOf(emptyList())
-            else repository.getChatMessages(user.id)
+    val activeChatMessages: StateFlow<List<DbMessage>> = combine(
+        _selectedUser,
+        isFirebaseLoggedIn
+    ) { user, loggedIn ->
+        Pair(user, loggedIn)
+    }.flatMapLatest { (user, loggedIn) ->
+        if (user == null) {
+            flowOf(emptyList())
+        } else if (loggedIn && user.id != "me" && user.id != "olyna" && user.id != "anyuka" && user.id != "jhaymark" && user.id != "szilard" && user.id != "kovacs" && user.id != "toth") {
+            FirebaseManager.observeMessages(user.id)
+        } else {
+            repository.getChatMessages(user.id)
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch {
@@ -48,36 +79,72 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun sendMessage(content: String) {
         val user = _selectedUser.value ?: return
         viewModelScope.launch {
-            // If they are a friend, it's already accepted. Otherwise, we send a request.
-            val isAccepted = user.isFriend
-            repository.sendMessage(user.id, content, isAccepted = isAccepted)
+            if (isFirebaseLoggedIn.value && user.id != "me" && user.id != "olyna" && user.id != "anyuka" && user.id != "jhaymark" && user.id != "szilard" && user.id != "kovacs" && user.id != "toth") {
+                FirebaseManager.sendMessage(user.id, content)
+            } else {
+                val isAccepted = user.isFriend
+                repository.sendMessage(user.id, content, isAccepted = isAccepted)
+            }
         }
     }
 
     fun sendAndReceiveMockReply(content: String) {
         val user = _selectedUser.value ?: return
         viewModelScope.launch {
-            val isAccepted = user.isFriend
-            repository.sendMessage(user.id, content, isAccepted = isAccepted)
-            
-            // Mock a typing status reply if friendship is active
-            if (isAccepted) {
-                kotlinx.coroutines.delay(1500)
-                // Insert auto-reply
-                val replyContent = "Szia! Erre most nem tudok válaszolni de megkaptam: \"$content\""
-                val replyMessage = DbMessage(
-                    senderId = user.id,
-                    receiverId = "me",
-                    content = replyContent,
-                    timestamp = System.currentTimeMillis()
-                )
-                // We directly insert it by invoking repository DB mappings or a quick wrapper inside repository
-                repository.sendMessage(user.id, replyContent, isAccepted = true)
-                // Swapping back sender receiver attributes
-                val list = repository.allMessagesFlow.firstOrNull() ?: emptyList()
-                val lastId = list.lastOrNull()?.id ?: 0
-                // We can't access database directly from viewModel, so we let repository do it.
+            if (isFirebaseLoggedIn.value && user.id != "me" && user.id != "olyna" && user.id != "anyuka" && user.id != "jhaymark" && user.id != "szilard" && user.id != "kovacs" && user.id != "toth") {
+                FirebaseManager.sendMessage(user.id, content)
+            } else {
+                val isAccepted = user.isFriend
+                repository.sendMessage(user.id, content, isAccepted = isAccepted)
+                
+                if (isAccepted) {
+                    kotlinx.coroutines.delay(1500)
+                    val replyContent = "Szia! Erre most nem tudok válaszolni de megkaptam: \"$content\""
+                    repository.sendMessage(user.id, replyContent, isAccepted = true)
+                }
             }
+        }
+    }
+
+    suspend fun registerUser(email: String, password: String, name: String): String? {
+        return try {
+            val success = FirebaseManager.registerUser(email, password, name)
+            if (success) {
+                isFirebaseLoggedIn.value = true
+                firebaseUserEmail.value = email
+                repository.updateUserName(name)
+                null
+            } else {
+                "Sikertelen regisztráció a Firebase-szel."
+            }
+        } catch (e: Exception) {
+            e.localizedMessage ?: "Hiba történt a regisztráció során."
+        }
+    }
+
+    suspend fun loginUser(email: String, password: String): String? {
+        return try {
+            val success = FirebaseManager.loginUser(email, password)
+            if (success) {
+                isFirebaseLoggedIn.value = true
+                firebaseUserEmail.value = email
+                val profileName = FirebaseManager.getCurrentUserEmail()?.split("@")?.firstOrNull() ?: "Bejelentkezett"
+                repository.updateUserName(profileName)
+                null
+            } else {
+                "Sikertelen bejelentkezés."
+            }
+        } catch (e: Exception) {
+            e.localizedMessage ?: "Hiba történt a bejelentkezés során."
+        }
+    }
+
+    fun logoutUser() {
+        FirebaseManager.logout()
+        isFirebaseLoggedIn.value = false
+        firebaseUserEmail.value = null
+        viewModelScope.launch {
+            repository.updateUserName("Vendég (Kijelentkezve)")
         }
     }
 
@@ -102,7 +169,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun acceptMessageRequest(userId: String) {
         viewModelScope.launch {
             repository.acceptMessageRequest(userId)
-            // Retrieve updated user to refresh UI
             val users = repository.allUsersFlow.firstOrNull() ?: emptyList()
             val u = users.find { it.id == userId }
             if (u != null) {

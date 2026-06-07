@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "591487350003",
+    "project_id": "messenger-5d832",
+    "storage_bucket": "messenger-5d832.firebasestorage.app",
+    "database_url": "https://messenger-5d832-default-rtdb.europe-west1.firebasedatabase.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:591487350003:android:c090da57fbd872b20e0fec",
+        "android_client_info": {
+          "package_name": "com.viber.voip"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSp6ouoCNYm3PBbYxQ2ZzavRSsfskLyf4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

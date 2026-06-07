@@ -92,17 +92,29 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                // Initialize modern Messenger ViewModel with local Room persistence
                 val context = LocalContext.current
                 val application = context.applicationContext as android.app.Application
-                val chatViewModel = remember { ChatViewModel(application) }
-                val scope = rememberCoroutineScope()
+                
+                // Initialize Firebase on start
+                LaunchedEffect(Unit) {
+                    com.example.data.FirebaseService.init(context)
+                }
 
-                val allUsers by chatViewModel.allUsers.collectAsState()
-                val allMessages by chatViewModel.allMessages.collectAsState()
-                val settings by chatViewModel.settings.collectAsState()
-                val selectedUser by chatViewModel.selectedUser.collectAsState()
-                val activeChatMessages by chatViewModel.activeChatMessages.collectAsState()
+                val isFirebaseLoggedIn by com.example.data.FirebaseService.isUserLoggedIn.collectAsState()
+                var bypassLoginLocal by remember { mutableStateOf(false) }
+
+                if (!isFirebaseLoggedIn && !bypassLoginLocal) {
+                    com.example.ui.AuthScreen(onAuthSuccess = { bypassLoginLocal = true })
+                } else {
+                    // Initialize modern Messenger ViewModel with local Room persistence
+                    val chatViewModel = remember { ChatViewModel(application) }
+                    val scope = rememberCoroutineScope()
+
+                    val allUsers by chatViewModel.allUsers.collectAsState()
+                    val allMessages by chatViewModel.allMessages.collectAsState()
+                    val settings by chatViewModel.settings.collectAsState()
+                    val selectedUser by chatViewModel.selectedUser.collectAsState()
+                    val activeChatMessages by chatViewModel.activeChatMessages.collectAsState()
 
                 val callStatus by CallManager.callStatus.collectAsState()
                 val currentCall by CallManager.currentCall.collectAsState()
@@ -339,22 +351,32 @@ class MainActivity : ComponentActivity() {
                                         stealthActive = settings.isStealthMode,
                                         onBack = { chatViewModel.selectUser(null) },
                                         onSendMessage = { content ->
-                                            if (user.isFriend) {
-                                                chatViewModel.sendAndReceiveMockReply(content)
+                                            if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                                scope.launch {
+                                                    com.example.data.FirebaseService.sendRealtimeMessage(context, user.id, content, user.isFriend)
+                                                }
                                             } else {
-                                                chatViewModel.sendMessage(content)
+                                                if (user.isFriend) {
+                                                    chatViewModel.sendAndReceiveMockReply(content)
+                                                } else {
+                                                    chatViewModel.sendMessage(content)
+                                                }
                                             }
                                         },
                                         onTriggerImmediateCall = {
-                                            CallManager.triggerIncomingCall(
-                                                context,
-                                                CallData(
-                                                    callerName = user.name,
-                                                    callerSubtitle = "Bejövő Videó Hívás",
-                                                    callType = CallType.VIDEO,
-                                                    callerAvatarHexColor = user.avatarColor
+                                            if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                                com.example.data.FirebaseService.startRealtimeCall(context, user.id, user.name, CallType.VIDEO)
+                                            } else {
+                                                CallManager.triggerIncomingCall(
+                                                    context,
+                                                    CallData(
+                                                        callerName = user.name,
+                                                        callerSubtitle = "Bejövő Videó Hívás",
+                                                        callType = CallType.VIDEO,
+                                                        callerAvatarHexColor = user.avatarColor
+                                                    )
                                                 )
-                                            )
+                                            }
                                         },
                                         onTriggerScheduledCall = { delaySec ->
                                             scheduledCallerName = user.name
@@ -432,7 +454,11 @@ class MainActivity : ComponentActivity() {
                                     callData = callData,
                                     onAccept = {
                                         scope.launch {
-                                            CallManager.answerCall(context)
+                                            if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                                com.example.data.FirebaseService.acceptRealtimeCall(context)
+                                            } else {
+                                                CallManager.answerCall(context)
+                                            }
                                             val intent = Intent(context, IncomingCallActivity::class.java).apply {
                                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                                             }
@@ -440,7 +466,11 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onDecline = {
-                                        CallManager.declineCall(context)
+                                        if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                            com.example.data.FirebaseService.declineRealtimeCall(context)
+                                        } else {
+                                            CallManager.declineCall(context)
+                                        }
                                     },
                                     chatViewModel = chatViewModel
                                 )
@@ -448,6 +478,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                } // Ends the auth else block
             }
         }
     }
@@ -1282,6 +1313,50 @@ fun SettingsTabScreen(
                 }
                 Text("Backend Host: https://olyna-messenger.onrender.com", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                 Text("Firebase Config Status: AKTÍV csevegéshez", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+            }
+        }
+
+        // Log out card in SettingsTabScreen if logged into Firebase
+        val isFirebaseLoggedIn = com.example.data.FirebaseService.isUserLoggedIn.collectAsState()
+        if (isFirebaseLoggedIn.value) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.12f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        com.example.data.FirebaseService.logout(context)
+                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        context.startActivity(intent)
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.ExitToApp,
+                            contentDescription = "Logout",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("Kijelentkezés a Fiókból", color = Color(0xFFFCA5A5), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Bontja a valós idejű Firebase szinkronizációt.", color = Color(0xFFFCA5A5).copy(alpha = 0.6f), fontSize = 10.sp)
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444).copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }

@@ -131,4 +131,33 @@ class ChatRepository(context: Context) {
     suspend fun updateCustomCallSettings(userId: String, ringtone: String, vibration: String) {
         dao.updateCustomCallSettings(userId, ringtone, vibration)
     }
+
+    suspend fun insertOrUpdateUserDirectly(user: User) {
+        val existing = dao.getUserById(user.id)
+        if (existing != null) {
+            dao.updateUser(user.copy(
+                customRingtone = existing.customRingtone,
+                customVibration = existing.customVibration
+            ))
+        } else {
+            dao.insertUser(user)
+        }
+    }
+
+    suspend fun insertMessageDirectlyIfNotExist(msg: DbMessage) {
+        val list = dao.getAllMessagesFlow().firstOrNull() ?: emptyList()
+        val exists = list.any { 
+            it.senderId == msg.senderId && 
+            it.receiverId == msg.receiverId && 
+            it.content == msg.content && 
+            Math.abs(it.timestamp - msg.timestamp) < 2000
+        }
+        if (!exists) {
+            dao.insertMessage(msg)
+        }
+    }
+
+    suspend fun getSettingsDirectly(): UserSettings {
+        return settingsFlow.firstOrNull() ?: UserSettings()
+    }
 }

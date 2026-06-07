@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Ellenőrzi, hogy a beérkező kérés hitelesítve van-e (be van-e jelentkezve a felhasználó)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Ellenőrzi, hogy a hitelesített felhasználó megegyezik-e a megadott felhasználói azonosítóval (uid)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============================================
+    // 1. FELHASZNÁLÓK (users gyűjtemény) RULES
+    // ============================================
+    match /users/{userId} {
+      
+      // Bárki, aki be van jelentkezve, olvashatja más felhasználók adatait (hogy láthassák az ismerősöket, kereshessenek és megjeleníthessék az avatarokat)
+      allow read: if isAuthenticated();
+      
+      // Új felhasználó létrehozása: Csak akkor engedélyezett, ha a hitelesített UID megegyezik a létrehozni kívánt dokumentum ID-jával (önhitelesítés)
+      allow create: if isOwner(userId);
+      
+      // Felhasználói adatok frissítése (pl. online státusz, egyedi csengőhang): Csak a dokumentum saját tulajdonosa módosíthatja az adatait
+      allow update: if isOwner(userId);
+      
+      // Felhasználó törlése: Szigorúan tilos, vagy csak saját magának engedélyezett biztonsági mentés után
+      allow delete: if isOwner(userId);
+    }
+
+    // ============================================
+    // 2. ÜZENETEK (messages gyűjtemény) RULES
+    // ============================================
+    match /messages/{messageId} {
+      
+      // Üzenet létrehozása: 
+      // Csak hitelesített felhasználó küldhet üzenetet, és a küldő azonosítónak (senderId) kötelezően meg kell egyeznie a bejelentkezett felhasználó UID-jával.
+      allow create: if isAuthenticated() 
+                    && request.resource.data.senderId == request.auth.uid;
+      
+      // Üzenetek olvasása:
+      // Egy felhasználó KIZÁRÓLAG azokat az üzeneteket olvashatja el, amelyeknél ő a küldő (senderId) VAGY ő a címzett (receiverId).
+      // Ez megakadályozza, hogy idegenek belenézzenek mások privát csevegéseibe.
+      allow read: if isAuthenticated() 
+                  && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      
+      // Üzenet szerkesztése vagy státuszfrissítése (pl. "megtekintve" / isRead érték átírása):
+      // Csak az üzenet írója küldhet javítást, vagy a címzett frissítheti az olvasottsági állapotot.
+      allow update: if isAuthenticated() 
+                    && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      
+      // Üzenet törlése: Csak az üzenet szerzője törölheti a saját üzeneteit.
+      allow delete: if isAuthenticated() 
+                    && resource.data.senderId == request.auth.uid;
+    }
+
+    // ============================================
+    // 3. RETIME HÍVÁSOK (calls gyűjtemény) RULES
+    // ============================================
+    match /calls/{callId} {
+      
+      // Új hívásjelzés kezdeményezése:
+      // Bármely bejelentkezett felhasználó létrehozhat egy hívásdokumentumot, de a hívó azonosítónak (callerId) meg kell egyeznie a saját UID-jával.
+      allow create: if isAuthenticated() 
+                    && request.resource.data.callerId == request.auth.uid;
+      
+      // Hívások olvasása és figyelése valós időben (realtime snapshot):
+      // Egy hívás részleteit csak a hívó fél (callerId) vagy a hívott fél (calleeId) láthatja és iratkozhat fel rá.
+      allow read: if isAuthenticated() 
+                  && (resource.data.callerId == request.auth.uid || resource.data.calleeId == request.auth.uid);
+      
+      // Hívási státusz frissítése (pl. "fogadott" / answered, "elutasított" / declined, "befejezett" / ended):
+      // A hívás állapotát a hívó és a hívott fél is jogosult módosítani a hívás életciklusa alatt.
+      allow update: if isAuthenticated() 
+                    && (resource.data.callerId == request.auth.uid || resource.data.calleeId == request.auth.uid);
+      
+      // Hívást naplózó rekordok fizikai törlése: Biztonsági okokból csak a résztvevők számára engedélyezett.
+      allow delete: if isAuthenticated() 
+                    && (resource.data.callerId == request.auth.uid || resource.data.calleeId == request.auth.uid);
+    }
+  }
+}

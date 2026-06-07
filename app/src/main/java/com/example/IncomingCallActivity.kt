@@ -112,10 +112,18 @@ class IncomingCallActivity : ComponentActivity() {
                             IncomingCallScreen(
                                 callData = callData,
                                 onAnswer = {
-                                    CallManager.answerCall(context)
+                                    if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                        com.example.data.FirebaseService.acceptRealtimeCall(context)
+                                    } else {
+                                        CallManager.answerCall(context)
+                                    }
                                 },
                                 onDecline = {
-                                    CallManager.declineCall(context)
+                                    if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                        com.example.data.FirebaseService.declineRealtimeCall(context)
+                                    } else {
+                                        CallManager.declineCall(context)
+                                    }
                                     finish()
                                 }
                             )
@@ -128,7 +136,11 @@ class IncomingCallActivity : ComponentActivity() {
                                     triggerPiPMode()
                                 },
                                 onHangUp = {
-                                    CallManager.endCall(context)
+                                    if (com.example.data.FirebaseService.isUserLoggedIn.value) {
+                                        com.example.data.FirebaseService.endRealtimeCall(context)
+                                    } else {
+                                        CallManager.endCall(context)
+                                    }
                                     finish()
                                 }
                             )
