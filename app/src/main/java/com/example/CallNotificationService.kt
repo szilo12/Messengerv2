@@ -100,6 +100,9 @@ class CallNotificationService : Service() {
             // Play Ringtone and Start Vibration via centralized CallManager
             CallManager.startRingingInternal(this)
 
+            // Show system-wide Floating Call Overlay (Facebook Messenger style)
+            FloatingCallOverlay.show(this, callData)
+
         } else if (action == ACTION_STOP) {
             stopForegroundAndRelease()
             stopSelf()
@@ -111,6 +114,7 @@ class CallNotificationService : Service() {
     private fun stopForegroundAndRelease() {
         Log.d(TAG, "Stopping foreground service and releasing media resources")
         CallManager.stopRingingInternal()
+        FloatingCallOverlay.dismiss()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {

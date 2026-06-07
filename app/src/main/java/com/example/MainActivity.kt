@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -105,6 +106,86 @@ class MainActivity : ComponentActivity() {
 
                 val callStatus by CallManager.callStatus.collectAsState()
                 val currentCall by CallManager.currentCall.collectAsState()
+
+                // Modern Startup Prompt Dialog for HUD Overlay / SYSTEM_ALERT_WINDOW permission
+                var showOverlayPermissionPrompt by remember {
+                    mutableStateOf(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            !android.provider.Settings.canDrawOverlays(context)
+                        } else {
+                            false
+                        }
+                    )
+                }
+
+                if (showOverlayPermissionPrompt) {
+                    AlertDialog(
+                        onDismissRequest = { showOverlayPermissionPrompt = false },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Layers,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0084FF)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Lebegő Hívásablak",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                            }
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Az Olyna Messenger Facebook Messenger-szerű lebegő hívásablakot használ, amely akkor is jelzi a hívást, ha Ön más alkalmazásban vagy a kezdőképernyőn tartózkodik.",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                                Text(
+                                    text = "A működéshez engedélyeznie kell a 'Megjelenítés más alkalmazások felett' opciót a rendszerbeállításokban.",
+                                    color = Color(0xFFF59E0B),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showOverlayPermissionPrompt = false
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        try {
+                                            val intent = Intent(
+                                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                android.net.Uri.parse("package:${context.packageName}")
+                                            )
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                            context.startActivity(intent)
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0084FF))
+                            ) {
+                                Text("Engedélyezés", color = Color.White)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showOverlayPermissionPrompt = false }
+                            ) {
+                                Text("Később", color = Color.White.copy(alpha = 0.6f))
+                            }
+                        },
+                        containerColor = Color(0xFF1E293B)
+                    )
+                }
 
                 var currentTab by remember { mutableStateOf("chats") } // chats, friends, requests, settings
                 val schedulerTimeLeft by CallManager.schedulerSecondsLeft.collectAsState()
@@ -1111,6 +1192,86 @@ fun SettingsTabScreen(
             }
         }
 
+        // Floating Call Overlay Permission Card
+        val isOverlayGranted = remember {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.provider.Settings.canDrawOverlays(context)
+            } else {
+                true
+            }
+        }
+        
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isOverlayGranted) {
+                        try {
+                            val intent = Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                            context.startActivity(intent)
+                        }
+                    } else {
+                        Toast.makeText(context, "A lebegő hívásablak engedélye már aktív! 🌟", Toast.LENGTH_SHORT).show()
+                    }
+                }
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Lebegő Hívásablak Overlay",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (isOverlayGranted) Color(0xFF22C55E).copy(alpha = 0.15f)
+                                        else Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (isOverlayGranted) "Engedélyezve" else "Beállítás szükséges",
+                                    color = if (isOverlayGranted) Color(0xFF22C55E) else Color(0xFFF59E0B),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Engedélyezd a megjelenítést más alkalmazások felett a Facebook Messenger stílusú lebegő híváspanelhez.",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.Layers,
+                        contentDescription = null,
+                        tint = if (isOverlayGranted) Color(0xFF0084FF) else Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
         // Background WebRTC + Firebase server status card
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), shape = RoundedCornerShape(16.dp)) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1777,13 +1938,47 @@ fun UserAvatar(
 }
 
 @Composable
+fun VoiceEqualizerWaves(color: Color = Color(0xFF0084FF)) {
+    val infiniteTransition = rememberInfiniteTransition(label = "equalizer")
+    
+    // Create 14 animated heights
+    val animations = (0 until 14).map { index ->
+        val duration = remember(index) { (500 + (index % 4) * 120) }
+        val startDelay = remember(index) { (index % 3) * 80 }
+        infiniteTransition.animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = duration, delayMillis = startDelay, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar_$index"
+        )
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 4.dp)
+    ) {
+        animations.forEach { anim ->
+            Box(
+                modifier = Modifier
+                    .size(width = 2.dp, height = (4.dp + (12.dp * anim.value)))
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(color)
+            )
+        }
+    }
+}
+
+@Composable
 fun HeadsUpCallBanner(
     callData: CallData,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     chatViewModel: ChatViewModel
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
     var showQuickReplies by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1796,211 +1991,183 @@ fun HeadsUpCallBanner(
     )
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Color(0xFF334155)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xE60F172A)), // Semi-translucent dark slate (90% opacity)
+        shape = RoundedCornerShape(26.dp),
+        border = BorderStroke(1.5.dp, Color(0xFF1E293B)), // Polished thin edge
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(12.dp, RoundedCornerShape(20.dp))
+            .shadow(12.dp, RoundedCornerShape(26.dp))
             .animateContentSize()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Row
+            // Main Control Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left avatar with messenger badge
-                UserAvatar(
-                    name = callData.callerName,
-                    avatarColor = callData.callerAvatarHexColor,
-                    avatarUrl = if (callData.callerName == "Olyna") "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80" else null,
-                    size = 46.dp,
-                    showMessengerBadge = true
-                )
+                // 1. Left avatar layout with overlapping blue active call badge
+                Box(
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    UserAvatar(
+                        name = callData.callerName,
+                        avatarColor = callData.callerAvatarHexColor,
+                        avatarUrl = if (callData.callerName == "Olyna") "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80" else null,
+                        size = 48.dp,
+                        showMessengerBadge = false
+                    )
+                    
+                    // Small Blue Active Call Icon Badge (replicates bottom-right badge in reference image)
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .align(Alignment.BottomEnd)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0084FF))
+                            .border(1.dp, Color(0xFF0F172A), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Call,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Middle Text Details
-                Column(modifier = Modifier.weight(1f)) {
+                // 2. Middle Texts: Name, Subtitle, and Soundwaves
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Text(
                         text = callData.callerName,
                         color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 16.sp
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (callData.callType == CallType.VIDEO) Icons.Rounded.Videocam else Icons.Rounded.Call,
-                            contentDescription = null,
-                            tint = Color(0xFF22C55E),
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (callData.callType == CallType.VIDEO) "Bejövő videóhívás..." else "Bejövő hanghívás...",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 11.sp
-                        )
-                    }
+                    Text(
+                        text = if (callData.callType == CallType.VIDEO) "Bejövő videóhívás" else "Bejövő hanghívás",
+                        color = Color(0xFF94A3B8), // slate-400
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                    
+                    // Live Audio Equalizer Wave Animation (from the design picture!)
+                    VoiceEqualizerWaves()
                 }
 
-                // If not expanded, show red decline, green accept, and chevron
-                if (!isExpanded) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Decline round button
-                        IconButton(
-                            onClick = onDecline,
-                            colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFFEF4444)),
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Elutasítás", tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
+                Spacer(modifier = Modifier.width(8.dp))
 
-                        // Accept round button
-                        IconButton(
-                            onClick = onAccept,
-                            colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFF22C55E)),
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(Icons.Default.Call, contentDescription = "Felvétel", tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Expand Chevron Button
-                IconButton(
-                    onClick = { isExpanded = !isExpanded },
-                    modifier = Modifier.size(32.dp)
+                // 3. Right side Button Row: Chat Shortcut, Decline Call, Accept Call
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Részletek",
-                        tint = Color.White.copy(alpha = 0.6f)
-                    )
+                    // Chat option toggles quick replies list below
+                    IconButton(
+                        onClick = { showQuickReplies = !showQuickReplies },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.15f)
+                        ),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Message,
+                            contentDescription = "Gyorsválasz",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Decline Button (Red)
+                    IconButton(
+                        onClick = onDecline,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color(0xFFEF4444) // Sweet Red
+                        ),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CallEnd,
+                            contentDescription = "Elutasítás",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Accept Button (Green)
+                    IconButton(
+                        onClick = onAccept,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color(0xFF22C55E) // Bright Green
+                        ),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Call,
+                            contentDescription = "Felvétel",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
-            // Expanded Options Block
-            if (isExpanded) {
+            // Expandable panel for Quick Replies sends text & automatically declines call
+            if (showQuickReplies) {
                 Divider(color = Color.White.copy(alpha = 0.08f))
-
-                if (!showQuickReplies) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Elutasítás column
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                        Text(
+                            text = "Küldj válaszüzenetet és utasítsd el:",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = "Mégse",
+                            color = Color(0xFF0084FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .clickable { onDecline() }
-                                .padding(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color(0xFFEF4444).copy(alpha = 0.15f), shape = CircleShape)
-                                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color(0xFFEF4444))
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Elutasítás", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        // Üzenet column
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable { showQuickReplies = true }
-                                .padding(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color(0xFF0084FF).copy(alpha = 0.15f), shape = CircleShape)
-                                    .border(1.dp, Color(0xFF0084FF).copy(alpha = 0.3f), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Rounded.Quickreply, contentDescription = null, tint = Color(0xFF0084FF))
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Gyorsválasz", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        // Felvétel column
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable { onAccept() }
-                                .padding(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color(0xFF22C55E).copy(alpha = 0.15f), shape = CircleShape)
-                                    .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.3f), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF22C55E))
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Felvétel", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                                .clickable { showQuickReplies = false }
+                                .padding(4.dp)
+                        )
                     }
-                } else {
-                    // Quick replies selection list
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+
+                    quickRepliesList.forEach { reply ->
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.05f), shape = RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onDecline()
+                                    val callerId = if (callData.callerName == "Olyna") "olyna" else "szilard"
+                                    scope.launch {
+                                        val repo = ChatRepository(context.applicationContext as android.app.Application)
+                                        repo.sendMessage(callerId, reply, isAccepted = true)
+                                        Toast.makeText(context, "Sikeresen megválaszolva és elutasítva!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Küldj válaszüzenetet és utasítsd el:", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
-                            Text(
-                                text = "Vissza",
-                                color = Color(0xFF0084FF),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .clickable { showQuickReplies = false }
-                                    .padding(4.dp)
-                            )
-                        }
-
-                        quickRepliesList.forEach { reply ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.White.copy(alpha = 0.05f), shape = RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        onDecline()
-                                        val callerId = if (callData.callerName == "Olyna") "olyna" else "szilard"
-                                        scope.launch {
-                                            val repo = ChatRepository(context.applicationContext as android.app.Application)
-                                            repo.sendMessage(callerId, reply, isAccepted = true)
-                                            Toast.makeText(context, "Sikeresen megválaszolva és elutasítva!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(text = reply, color = Color.White, fontSize = 12.sp)
-                            }
+                            Text(text = reply, color = Color.White, fontSize = 12.sp)
                         }
                     }
                 }

@@ -16,8 +16,10 @@ import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
 
 object CallNotificationHelper {
-    private const val CHANNEL_ID = "olyna_messenger_call_channel"
-    private const val CHANNEL_NAME = "Olyna Incoming Calls"
+    private const val CHANNEL_ID_VOIP = "olyna_messenger_call_channel_voip_v2"
+    private const val CHANNEL_NAME_VOIP = "Olyna Lockscreen Calls"
+    private const val CHANNEL_ID_SILENT = "olyna_messenger_call_channel_silent_v2"
+    private const val CHANNEL_NAME_SILENT = "Olyna Incoming Calls"
     private const val NOTIFICATION_ID = 1001
 
     private fun createAvatarIconBitmap(context: Context, name: String, hexColor: Long): Bitmap {
@@ -51,21 +53,38 @@ object CallNotificationHelper {
 
     fun buildIncomingCallNotification(context: Context, callData: CallData): Notification {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        val isLocked = keyguardManager?.isKeyguardLocked == true
 
-        // 1. Create Notification Channel on Android Oreo (API 26) and above
+        // 1. Create Notification Channels on Android Oreo (API 26) and above
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
+            // VOIP High Importance Channel (Required for full screen intent on Lockscreen)
+            val voipChannel = NotificationChannel(
+                CHANNEL_ID_VOIP,
+                CHANNEL_NAME_VOIP,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifies of incoming VoIP video and voice calls on Olyna Messenger"
+                description = "Notifies of incoming VoIP video and voice calls on Olyna Messenger when locked"
                 enableLights(true)
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setSound(null, null)
             }
-            notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(voipChannel)
+
+            // Silent/Default Importance Channel (For unlocked state, prevents system heads-up overlap)
+            val silentChannel = NotificationChannel(
+                CHANNEL_ID_SILENT,
+                CHANNEL_NAME_SILENT,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifies of incoming VoIP calls on Olyna Messenger when unlocked"
+                enableLights(true)
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setSound(null, null)
+            }
+            notificationManager.createNotificationChannel(silentChannel)
         }
 
         // 2. Prepare Intent to launch IncomingCallActivity in full screen
@@ -129,17 +148,11 @@ object CallNotificationHelper {
             setOnClickPendingIntent(R.id.btn_decline, declinePendingIntent)
         }
 
-        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-        val isLocked = keyguardManager?.isKeyguardLocked == true
-        val isBackground = !CallManager.isAppInForeground
+        // Determine target channel ID and priority based on screen status
+        val targetChannelId = if (isLocked) CHANNEL_ID_VOIP else CHANNEL_ID_SILENT
+        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT
 
-        val priority = if (isBackground) {
-            NotificationCompat.PRIORITY_MAX
-        } else {
-            NotificationCompat.PRIORITY_LOW // Prevent peeking/double-popup when inside the app
-        }
-
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, targetChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -149,7 +162,7 @@ object CallNotificationHelper {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         // Only start the full screen activity if the device screen is locked!
-        // If the device is unlocked (whether in another app or our app), we show only the heads-up notification.
+        // If the device is unlocked, we rely on the custom lebegő hívásablak FloatingCallOverlay.
         if (isLocked) {
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
         } else {
