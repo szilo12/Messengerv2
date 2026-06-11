@@ -1,27 +1,37 @@
 {
   "project_info": {
-    "project_number": "591487350003",
-    "project_id": "messenger-5d832",
-    "storage_bucket": "messenger-5d832.firebasestorage.app",
-    "database_url": "https://messenger-5d832-default-rtdb.europe-west1.firebasedatabase.app"
+    "project_number": "371135412204",
+    "firebase_url": "https://proba-181c9-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "proba-181c9",
+    "storage_bucket": "proba-181c9.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:591487350003:android:c090da57fbd872b20e0fec",
+        "mobilesdk_app_id": "1:371135412204:android:334bec9acfbcc4bad472c9",
         "android_client_info": {
-          "package_name": "com.viber.voip"
+          "package_name": "com.aistudio.messenger.mscrdp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "371135412204-bsj2q7lndvupdndjto3nf0dgquh39jmk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyBSp6ouoCNYm3PBbYxQ2ZzavRSsfskLyf4"
+          "current_key": "AIzaSyAigzHuN7e_6frXY82omsm7tke8cjg718U"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "371135412204-bsj2q7lndvupdndjto3nf0dgquh39jmk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

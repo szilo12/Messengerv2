@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/chat_head_root"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <!-- Avatar Container Wrapper -->
+    <FrameLayout
+        android:id="@+id/avatar_wrapper"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <!-- Circular Profile Image Container -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/avatar_container"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_margin="8dp"
+            app:cardCornerRadius="30dp"
+            app:cardElevation="6dp"
+            app:cardBackgroundColor="#00000000"
+            android:clipChildren="true">
+
+            <ImageView
+                android:id="@+id/avatar_image"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_avatar_placeholder" />
+
+        </androidx.cardview.widget.CardView>
+
+        <!-- Unread Message Count Badge -->
+        <TextView
+            android:id="@+id/unread_badge"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_badge"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:text="1"
+            android:elevation="8dp"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- Message Preview Pill Bubble -->
+    <LinearLayout
+        android:id="@+id/preview_bubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="8dp"
+        android:background="@drawable/bg_preview_bubble_left"
+        android:orientation="vertical"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp"
+        android:elevation="4dp"
+        android:maxWidth="200dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/preview_sender"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/preview_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#E4E6EB"
+            android:textSize="13sp"
+            android:ellipsize="end"
+            android:maxLines="2" />
+
+    </LinearLayout>
+
+</LinearLayout>

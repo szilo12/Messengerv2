@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Dark gradient shadow at the bottom for readability of the text -->
+    <View
+        android:id="@+id/dismiss_shadow"
+        android:layout_width="match_parent"
+        android:layout_height="140dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_dismiss_gradient" />
+
+    <!-- Dismiss Circle Container -->
+    <LinearLayout
+        android:id="@+id/dismiss_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="40dp"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <!-- Circular Close Button -->
+        <FrameLayout
+            android:id="@+id/dismiss_circle"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_dismiss_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:id="@+id/dismiss_icon"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_close_white" />
+        </FrameLayout>
+
+        <!-- Information Label -->
+        <TextView
+            android:id="@+id/dismiss_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:shadowColor="#80000000"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="2"
+            android:text="Húzd ide a bezáráshoz" />
+
+    </LinearLayout>
+
+</FrameLayout>

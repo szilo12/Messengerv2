@@ -1,0 +1,8 @@
+{
+	"appId": "com.messenger.app",
+	"appName": "Messenger",
+	"webDir": "dist",
+	"android": {
+		"backgroundColor": "#0b0614"
+	}
+}

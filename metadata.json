@@ -1,6 +1,6 @@
 {
-  "name": "Olyna",
-  "description": "Olyna Messenger with custom immersive outside-the-app incoming call notifications and interactive answer controls.",
+  "name": "Messenger",
+  "description": "A rich hybrid Capacitor and Android messenger featuring peer calling, background notifications, and active call floating overlays.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
