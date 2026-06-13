@@ -1,5 +1,5 @@
 {
-	"appId": "com.messenger.app",
+	"appId": "com.szilo.messenger",
 	"appName": "Messenger",
 	"webDir": "dist",
 	"android": {

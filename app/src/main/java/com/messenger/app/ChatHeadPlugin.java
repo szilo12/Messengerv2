@@ -223,6 +223,10 @@ public class ChatHeadPlugin extends Plugin {
             Log.e(TAG, "showOngoingCallNotification failed: " + e.getMessage());
         }
 
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).updateOngoingCallBanner();
+        }
+
         call.resolve();
     }
 
@@ -236,6 +240,11 @@ public class ChatHeadPlugin extends Plugin {
         activeChatId = null;
         activeCallStartedAt = 0L;
         FloatingCallOverlayService.stop(getContext(), null);
+
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).updateOngoingCallBanner();
+        }
+
         call.resolve();
     }
 
@@ -276,6 +285,11 @@ public class ChatHeadPlugin extends Plugin {
         } catch (Exception e) {
             Log.e(TAG, "showFloatingCallOverlay failed: " + e.getMessage());
         }
+
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).updateOngoingCallBanner();
+        }
+
         call.resolve();
     }
 
@@ -463,6 +477,20 @@ public class ChatHeadPlugin extends Plugin {
             @Override
             public void run() {
                 try {
+                    if (activeOngoingCall) {
+                        Intent intent = new Intent(getContext(), FloatingCallOverlayService.class);
+                        intent.setAction(FloatingCallOverlayService.ACTION_SHOW);
+                        intent.putExtra("callId", activeCallId);
+                        intent.putExtra("chatId", activeChatId);
+                        intent.putExtra("callerName", activeCallerName);
+                        intent.putExtra("callType", activeCallType);
+                        intent.putExtra("avatarUrl", activeAvatarUrl);
+                        intent.putExtra("statusText", "Hivas...");
+                        intent.putExtra("isOngoingOrOutgoing", true);
+                        intent.putExtra("forceShowOverlay", true);
+                        intent.putExtra("callStartedAt", activeCallStartedAt > 0L ? activeCallStartedAt : System.currentTimeMillis());
+                        androidx.core.content.ContextCompat.startForegroundService(getContext(), intent);
+                    }
                     getActivity().moveTaskToBack(true);
                     call.resolve();
                 } catch (Exception e) {
@@ -486,6 +514,10 @@ public class ChatHeadPlugin extends Plugin {
                 }
                 if (navColorHex != null && !navColorHex.isEmpty()) {
                     getActivity().getWindow().setNavigationBarColor(Color.parseColor(navColorHex));
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    getActivity().getWindow().setStatusBarContrastEnforced(false);
+                    getActivity().getWindow().setNavigationBarContrastEnforced(false);
                 }
                 WindowInsetsControllerCompat insetsController =
                     new WindowInsetsControllerCompat(getActivity().getWindow(), getActivity().getWindow().getDecorView());

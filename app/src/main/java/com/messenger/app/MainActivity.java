@@ -182,6 +182,9 @@ public class MainActivity extends BridgeActivity {
         if (!ChatHeadPlugin.hasActiveOngoingCall()) {
             clearFullScreenCallWindow();
         }
+
+        // Update ongoing call banner inside the app
+        updateOngoingCallBanner();
     }
 
     @Override
@@ -191,6 +194,13 @@ public class MainActivity extends BridgeActivity {
         ChatHeadService.setAppVisible(false);
         Log.d(TAG, "onPause: App is in background.");
         showActiveCallReturnSurface();
+
+        // Hide ongoing call banner
+        if (callBannerView != null) {
+            android.widget.FrameLayout root = findViewById(android.R.id.content);
+            root.removeView(callBannerView);
+            callBannerView = null;
+        }
     }
 
     @Override
@@ -278,6 +288,7 @@ public class MainActivity extends BridgeActivity {
                         manager.cancel(8888);
                     }
                 }
+                updateOngoingCallBanner();
             }
         }
     }
@@ -329,7 +340,11 @@ public class MainActivity extends BridgeActivity {
                     controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_DEFAULT);
                 }
             } else {
-                getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                int flags = getWindow().getDecorView().getSystemUiVisibility();
+                flags &= ~View.SYSTEM_UI_FLAG_FULLSCREEN;
+                flags &= ~View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+                flags &= ~View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                getWindow().getDecorView().setSystemUiVisibility(flags);
             }
         } catch (Exception error) {
             Log.w(TAG, "Could not clear full-screen call window: " + error.getMessage());
@@ -374,5 +389,406 @@ public class MainActivity extends BridgeActivity {
                 manager.createNotificationChannel(callChannel);
             }
         }
+    }
+
+    private View callBannerView = null;
+
+    public void updateOngoingCallBanner() {
+        runOnUiThread(() -> {
+            android.widget.FrameLayout root = findViewById(android.R.id.content);
+            if (callBannerView != null) {
+                root.removeView(callBannerView);
+                callBannerView = null;
+            }
+
+            // The in-app active call card is rendered by the React sidebar so it can
+            // sit exactly between the filter chips and the "active now" row.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BASE) {
+                return;
+            }
+
+            if (!ChatHeadPlugin.hasActiveOngoingCall()) {
+                return;
+            }
+
+            float density = getResources().getDisplayMetrics().density;
+            int dp2 = dp(density, 2);
+            int dp3 = dp(density, 3);
+            int dp6 = dp(density, 6);
+            int dp8 = dp(density, 8);
+            int dp10 = dp(density, 10);
+            int dp12 = dp(density, 12);
+            int dp14 = dp(density, 14);
+            int dp18 = dp(density, 18);
+            int dp22 = dp(density, 22);
+            int dp28 = dp(density, 28);
+            int dp40 = dp(density, 40);
+            int dp62 = dp(density, 62);
+
+            String caller = ChatHeadPlugin.activeCallerName != null && !ChatHeadPlugin.activeCallerName.isEmpty()
+                ? ChatHeadPlugin.activeCallerName
+                : "Messenger hivas";
+            boolean isVideoCall = "video".equals(ChatHeadPlugin.activeCallType);
+            long startedAt = ChatHeadPlugin.activeCallStartedAt > 0L
+                ? ChatHeadPlugin.activeCallStartedAt
+                : RtcConnectionManager.INSTANCE.getCallStartedAt();
+
+            android.widget.LinearLayout banner = new android.widget.LinearLayout(this);
+            banner.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            banner.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            banner.setMinimumHeight(dp(density, 82));
+            banner.setPadding(dp12, dp10, dp10, dp10);
+
+            android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
+            cardBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            cardBg.setCornerRadius(dp18);
+            cardBg.setColor(Color.parseColor("#F7FBFF"));
+            cardBg.setStroke(dp2, Color.parseColor("#D6E8FF"));
+            banner.setBackground(cardBg);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                banner.setElevation(7 * density);
+                banner.setTranslationZ(3 * density);
+            }
+
+            android.widget.FrameLayout avatarFrame = new android.widget.FrameLayout(this);
+            android.graphics.drawable.GradientDrawable avatarBg = new android.graphics.drawable.GradientDrawable();
+            avatarBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            avatarBg.setColor(Color.parseColor("#EAF4FF"));
+            avatarBg.setStroke(dp2, Color.parseColor("#1D8CFF"));
+            avatarFrame.setBackground(avatarBg);
+
+            android.widget.ImageView avatarIcon = new android.widget.ImageView(this);
+            avatarIcon.setImageResource(R.drawable.ic_avatar_placeholder);
+            avatarIcon.setPadding(dp8, dp8, dp8, dp8);
+            avatarFrame.addView(avatarIcon, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+
+            android.widget.FrameLayout phoneBadge = new android.widget.FrameLayout(this);
+            android.graphics.drawable.GradientDrawable badgeBg = new android.graphics.drawable.GradientDrawable();
+            badgeBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            badgeBg.setColor(Color.parseColor("#1D8CFF"));
+            phoneBadge.setBackground(badgeBg);
+            android.widget.ImageView phoneIcon = new android.widget.ImageView(this);
+            phoneIcon.setImageResource(R.drawable.ic_call_accept);
+            phoneIcon.setColorFilter(Color.WHITE);
+            phoneIcon.setPadding(dp6, dp6, dp6, dp6);
+            phoneBadge.addView(phoneIcon, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            android.widget.FrameLayout.LayoutParams badgeLp = new android.widget.FrameLayout.LayoutParams(dp28, dp28);
+            badgeLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.RIGHT;
+            avatarFrame.addView(phoneBadge, badgeLp);
+
+            android.widget.LinearLayout.LayoutParams avatarLp = new android.widget.LinearLayout.LayoutParams(dp62, dp62);
+            avatarLp.rightMargin = dp12;
+            banner.addView(avatarFrame, avatarLp);
+
+            android.widget.LinearLayout textColumn = new android.widget.LinearLayout(this);
+            textColumn.setOrientation(android.widget.LinearLayout.VERTICAL);
+            textColumn.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+            android.widget.LinearLayout statusRow = new android.widget.LinearLayout(this);
+            statusRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            statusRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            android.widget.ImageView smallCallIcon = new android.widget.ImageView(this);
+            smallCallIcon.setImageResource(R.drawable.ic_call_accept);
+            smallCallIcon.setColorFilter(Color.parseColor("#1D8CFF"));
+            statusRow.addView(smallCallIcon, new android.widget.LinearLayout.LayoutParams(dp14, dp14));
+
+            android.widget.TextView statusText = new android.widget.TextView(this);
+            statusText.setText(isVideoCall ? " AKTIV VIDEOHIVAS" : " AKTIV HANGHIVAS");
+            statusText.setTextColor(Color.parseColor("#2B74C7"));
+            statusText.setTextSize(10.5f);
+            statusText.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+            statusRow.addView(statusText);
+            textColumn.addView(statusRow);
+
+            android.widget.TextView titleText = new android.widget.TextView(this);
+            titleText.setText(caller);
+            titleText.setTextColor(Color.parseColor("#0F172A"));
+            titleText.setTextSize(16f);
+            titleText.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+            titleText.setSingleLine(true);
+            titleText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            textColumn.addView(titleText, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+
+            android.widget.LinearLayout timerRow = new android.widget.LinearLayout(this);
+            timerRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            timerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            android.widget.TextView dot = new android.widget.TextView(this);
+            dot.setText("•");
+            dot.setTextColor(Color.parseColor("#1D8CFF"));
+            dot.setTextSize(18f);
+            timerRow.addView(dot);
+
+            android.widget.Chronometer timer = new android.widget.Chronometer(this);
+            long elapsedMs = System.currentTimeMillis() - (startedAt > 0L ? startedAt : System.currentTimeMillis());
+            timer.setBase(android.os.SystemClock.elapsedRealtime() - elapsedMs);
+            timer.setTextColor(Color.parseColor("#64748B"));
+            timer.setTextSize(12f);
+            timer.setTypeface(android.graphics.Typeface.MONOSPACE);
+            timer.start();
+            timerRow.addView(timer);
+            textColumn.addView(timerRow);
+
+            banner.addView(textColumn, new android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            android.widget.LinearLayout waveRow = new android.widget.LinearLayout(this);
+            waveRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            waveRow.setGravity(android.view.Gravity.CENTER);
+            int[] heights = new int[] { 8, 14, 20, 12, 26, 18, 30, 16, 24, 10, 18, 12 };
+            for (int h : heights) {
+                View bar = new View(this);
+                android.graphics.drawable.GradientDrawable barBg = new android.graphics.drawable.GradientDrawable();
+                barBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                barBg.setCornerRadius(dp2);
+                barBg.setColor(Color.parseColor("#7AB8F5"));
+                bar.setBackground(barBg);
+                android.widget.LinearLayout.LayoutParams barLp = new android.widget.LinearLayout.LayoutParams(dp3, dp(density, h));
+                barLp.leftMargin = dp2;
+                waveRow.addView(bar, barLp);
+
+                android.view.animation.ScaleAnimation voicePulse = new android.view.animation.ScaleAnimation(
+                    1f,
+                    1f,
+                    0.35f,
+                    1.18f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF,
+                    0.5f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF,
+                    0.5f
+                );
+                voicePulse.setDuration(520 + (h * 9L));
+                voicePulse.setStartOffset((h * 23L) % 360L);
+                voicePulse.setRepeatCount(android.view.animation.Animation.INFINITE);
+                voicePulse.setRepeatMode(android.view.animation.Animation.REVERSE);
+                voicePulse.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                bar.startAnimation(voicePulse);
+            }
+            android.widget.LinearLayout.LayoutParams waveLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp40
+            );
+            waveLp.leftMargin = dp8;
+            waveLp.rightMargin = dp10;
+            banner.addView(waveRow, waveLp);
+
+            android.widget.TextView returnButton = new android.widget.TextView(this);
+            returnButton.setText("Vissza");
+            returnButton.setTextColor(Color.WHITE);
+            returnButton.setTextSize(12f);
+            returnButton.setGravity(android.view.Gravity.CENTER);
+            returnButton.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+            android.graphics.drawable.GradientDrawable returnBg = new android.graphics.drawable.GradientDrawable();
+            returnBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            returnBg.setCornerRadius(dp22);
+            returnBg.setColor(Color.parseColor("#2F80ED"));
+            returnButton.setBackground(returnBg);
+            returnButton.setOnClickListener(v -> openActiveCallScreen());
+            android.widget.LinearLayout.LayoutParams returnLp = new android.widget.LinearLayout.LayoutParams(dp(density, 64), dp40);
+            returnLp.rightMargin = dp8;
+            banner.addView(returnButton, returnLp);
+
+            android.widget.FrameLayout endButton = new android.widget.FrameLayout(this);
+            android.graphics.drawable.GradientDrawable endBg = new android.graphics.drawable.GradientDrawable();
+            endBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            endBg.setColor(Color.parseColor("#EF3F5A"));
+            endButton.setBackground(endBg);
+            android.widget.ImageView endIcon = new android.widget.ImageView(this);
+            endIcon.setImageResource(R.drawable.ic_call_decline);
+            endIcon.setColorFilter(Color.WHITE);
+            endIcon.setPadding(dp8, dp8, dp8, dp8);
+            endButton.addView(endIcon, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            endButton.setOnClickListener(v -> {
+                Intent endIntent = new Intent(this, NotificationReceiver.class);
+                endIntent.setAction(NotificationReceiver.ACTION_END_CALL);
+                endIntent.putExtra("chatId", ChatHeadPlugin.activeChatId);
+                endIntent.putExtra("callId", ChatHeadPlugin.activeCallId);
+                endIntent.putExtra("callerName", ChatHeadPlugin.activeCallerName);
+                endIntent.putExtra("callType", ChatHeadPlugin.activeCallType);
+                endIntent.putExtra("avatarUrl", ChatHeadPlugin.activeAvatarUrl);
+                sendBroadcast(endIntent);
+            });
+            banner.addView(endButton, new android.widget.LinearLayout.LayoutParams(dp40, dp40));
+
+            banner.setOnClickListener(v -> openActiveCallScreen());
+
+            android.widget.FrameLayout.LayoutParams bannerParams = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            );
+            bannerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+            bannerParams.leftMargin = dp18;
+            bannerParams.rightMargin = dp18;
+            bannerParams.topMargin = dp(density, 182);
+
+            root.addView(banner, bannerParams);
+            callBannerView = banner;
+        });
+    }
+
+    private int dp(float density, int value) {
+        return (int) (value * density + 0.5f);
+    }
+
+    private void openActiveCallScreen() {
+        Intent activeCallIntent = new Intent(this, ActiveCallActivity.class);
+        activeCallIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        activeCallIntent.putExtra("chatId", ChatHeadPlugin.activeChatId);
+        activeCallIntent.putExtra("callId", ChatHeadPlugin.activeCallId);
+        activeCallIntent.putExtra("callerName", ChatHeadPlugin.activeCallerName);
+        activeCallIntent.putExtra("callType", ChatHeadPlugin.activeCallType);
+        activeCallIntent.putExtra("avatarUrl", ChatHeadPlugin.activeAvatarUrl);
+        activeCallIntent.putExtra("callStartedAt", ChatHeadPlugin.activeCallStartedAt > 0L
+            ? ChatHeadPlugin.activeCallStartedAt
+            : RtcConnectionManager.INSTANCE.getCallStartedAt());
+        startActivity(activeCallIntent);
+    }
+
+    private void updateOngoingCallBannerLegacy() {
+        runOnUiThread(() -> {
+            boolean hasCall = ChatHeadPlugin.hasActiveOngoingCall();
+            if (hasCall) {
+                if (callBannerView != null) {
+                    android.widget.FrameLayout root = findViewById(android.R.id.content);
+                    root.removeView(callBannerView);
+                    callBannerView = null;
+                }
+                
+                float density = getResources().getDisplayMetrics().density;
+                int dp24 = (int) (24 * density + 0.5f);
+                int dp12 = (int) (12 * density + 0.5f);
+                int dp16 = (int) (16 * density + 0.5f);
+                int dp40 = (int) (40 * density + 0.5f);
+                int dp20 = (int) (20 * density + 0.5f);
+
+                android.widget.LinearLayout banner = new android.widget.LinearLayout(this);
+                banner.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                banner.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                
+                // Deep Charcoal/Slate glassmorphic card background with neon blue edge glow
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+                gd.setCornerRadius(dp24);
+                gd.setColor(Color.parseColor("#E60F172A")); // Translucent Slate-900 (90% opacity)
+                gd.setStroke((int) (1.5f * density + 0.5f), Color.parseColor("#330084FF")); // Neon blue border glow
+                banner.setBackground(gd);
+                
+                banner.setPadding(dp16, dp12, dp16, dp12);
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    banner.setElevation(10 * density);
+                    banner.setTranslationZ(4 * density);
+                }
+                
+                // Emerald circular wrapper for the call icon
+                android.widget.FrameLayout iconWrapper = new android.widget.FrameLayout(this);
+                android.graphics.drawable.GradientDrawable iconBg = new android.graphics.drawable.GradientDrawable();
+                iconBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                iconBg.setColor(Color.parseColor("#10B981")); // Emerald Green
+                iconWrapper.setBackground(iconBg);
+                
+                android.widget.ImageView icon = new android.widget.ImageView(this);
+                int iconResId = getResources().getIdentifier("ic_call_chat", "drawable", getPackageName());
+                if (iconResId != 0) {
+                    icon.setImageResource(iconResId);
+                } else {
+                    icon.setImageResource(android.R.drawable.ic_menu_call);
+                }
+                icon.setColorFilter(Color.WHITE);
+                
+                android.widget.FrameLayout.LayoutParams iconInnerParams = new android.widget.FrameLayout.LayoutParams(dp20, dp20);
+                iconInnerParams.gravity = android.view.Gravity.CENTER;
+                iconWrapper.addView(icon, iconInnerParams);
+                
+                // Slow ambient pulsing animation on the icon wrapper
+                android.view.animation.AlphaAnimation pulseAnim = new android.view.animation.AlphaAnimation(0.5f, 1.0f);
+                pulseAnim.setDuration(1200);
+                pulseAnim.setRepeatCount(android.view.animation.Animation.INFINITE);
+                pulseAnim.setRepeatMode(android.view.animation.Animation.REVERSE);
+                iconWrapper.startAnimation(pulseAnim);
+                
+                android.widget.LinearLayout.LayoutParams wrapperLp = new android.widget.LinearLayout.LayoutParams(dp40, dp40);
+                wrapperLp.rightMargin = dp12;
+                banner.addView(iconWrapper, wrapperLp);
+                
+                // Vertical text details Column
+                android.widget.LinearLayout textColumn = new android.widget.LinearLayout(this);
+                textColumn.setOrientation(android.widget.LinearLayout.VERTICAL);
+                
+                android.widget.TextView titleText = new android.widget.TextView(this);
+                String caller = ChatHeadPlugin.activeCallerName != null ? ChatHeadPlugin.activeCallerName : "hívás";
+                titleText.setText("Aktív hívás • " + caller);
+                titleText.setTextColor(Color.WHITE);
+                titleText.setTextSize(13.5f);
+                titleText.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+                textColumn.addView(titleText);
+                
+                android.widget.TextView subtitleText = new android.widget.TextView(this);
+                subtitleText.setText("Koppints a visszatéréshez a beszélgetéshez");
+                subtitleText.setTextColor(Color.parseColor("#94A3B8")); // Slate-400
+                subtitleText.setTextSize(10.5f);
+                subtitleText.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+                
+                android.widget.LinearLayout.LayoutParams subLp = new android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+                subLp.topMargin = (int) (2 * density + 0.5f);
+                textColumn.addView(subtitleText, subLp);
+                
+                banner.addView(textColumn, new android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                
+                banner.setOnClickListener(v -> {
+                    Intent activeCallIntent = new Intent(this, ActiveCallActivity.class);
+                    activeCallIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    activeCallIntent.putExtra("chatId", ChatHeadPlugin.activeChatId);
+                    activeCallIntent.putExtra("callId", ChatHeadPlugin.activeCallId);
+                    activeCallIntent.putExtra("callerName", ChatHeadPlugin.activeCallerName);
+                    activeCallIntent.putExtra("callType", ChatHeadPlugin.activeCallType);
+                    activeCallIntent.putExtra("avatarUrl", ChatHeadPlugin.activeAvatarUrl);
+                    activeCallIntent.putExtra("callStartedAt", RtcConnectionManager.INSTANCE.getCallStartedAt());
+                    startActivity(activeCallIntent);
+                });
+                
+                android.widget.FrameLayout root = findViewById(android.R.id.content);
+                android.widget.FrameLayout.LayoutParams bannerParams = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+                );
+                bannerParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+                
+                int marginHor = (int) (14 * density + 0.5f);
+                int marginTop = (int) (10 * density + 0.5f);
+                bannerParams.leftMargin = marginHor;
+                bannerParams.rightMargin = marginHor;
+                
+                int statusBarHeight = 0;
+                int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                if (resourceId > 0) {
+                    statusBarHeight = getResources().getDimensionPixelSize(resourceId);
+                }
+                bannerParams.topMargin = statusBarHeight + marginTop;
+                
+                root.addView(banner, bannerParams);
+                callBannerView = banner;
+            } else {
+                if (callBannerView != null) {
+                    android.widget.FrameLayout root = findViewById(android.R.id.content);
+                    root.removeView(callBannerView);
+                    callBannerView = null;
+                }
+            }
+        });
     }
 }

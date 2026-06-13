@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
+import android.os.Build
+import android.telecom.DisconnectCause
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -178,9 +180,31 @@ class NotificationReceiver : BroadcastReceiver() {
 
         when (action) {
             ACTION_STOP_RINGTONE -> {
-                stopLocalCallUi(context, callId, false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    RtcConnectionManager.getConnection()?.let { conn ->
+                        try {
+                            conn.setDisconnected(DisconnectCause(DisconnectCause.MISSED))
+                            conn.destroy()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to abort connection: ${e.message}")
+                        }
+                    }
+                    RtcConnectionManager.clear()
+                }
+                stopLocalCallUi(context, callId, true)
             }
             ACTION_DECLINE_CALL -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    RtcConnectionManager.getConnection()?.let { conn ->
+                        try {
+                            conn.setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
+                            conn.destroy()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to reject connection: ${e.message}")
+                        }
+                    }
+                    RtcConnectionManager.clear()
+                }
                 stopLocalCallUi(context, callId, true)
                 clearActiveCallState()
                 ChatHeadPlugin.queueCallAction(context, callId, "decline", chatId, callerName ?: "", callType ?: "", avatarUrl ?: "")
@@ -188,7 +212,18 @@ class NotificationReceiver : BroadcastReceiver() {
                 reportDeclineToBackend(context, callId)
             }
             ACTION_ACCEPT_CALL -> {
-                stopLocalCallUi(context, callId, true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    RtcConnectionManager.getConnection()?.let { conn ->
+                        try {
+                            if (conn.state != android.telecom.Connection.STATE_ACTIVE) {
+                                conn.setActive()
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to set connection active: ${e.message}")
+                        }
+                    }
+                }
+                stopLocalCallUi(context, callId, false)
                 ChatHeadPlugin.queueCallAction(context, callId, "accept", chatId, callerName ?: "", callType ?: "", avatarUrl ?: "")
                 ChatHeadPlugin.sendStopRingtoneEvent()
                 reportAcceptToBackend(context, callId)
@@ -212,10 +247,22 @@ class NotificationReceiver : BroadcastReceiver() {
                     putExtra("callerName", callerName)
                     putExtra("callType", callType)
                     putExtra("avatarUrl", avatarUrl)
+                    putExtra("callStartedAt", RtcConnectionManager.callStartedAt)
                 }
                 context.startActivity(activeCallIntent)
             }
             ACTION_END_CALL -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    RtcConnectionManager.getConnection()?.let { conn ->
+                        try {
+                            conn.setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
+                            conn.destroy()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to disconnect connection: ${e.message}")
+                        }
+                    }
+                    RtcConnectionManager.clear()
+                }
                 stopLocalCallUi(context, callId, true)
                 clearActiveCallState()
                 ChatHeadPlugin.queueCallAction(context, callId, "end", chatId, callerName ?: "", callType ?: "", avatarUrl ?: "")
@@ -256,7 +303,7 @@ class NotificationReceiver : BroadcastReceiver() {
             putExtra("callerName", callerName ?: "Messenger")
             putExtra("callType", callType ?: "audio")
             putExtra("avatarUrl", avatarUrl ?: "")
-            putExtra("statusText", "Hivas...")
+            putExtra("statusText", "Kapcsolódva")
             putExtra("isOngoingOrOutgoing", true)
         }
         try {
@@ -274,6 +321,9 @@ class NotificationReceiver : BroadcastReceiver() {
         MyFirebaseMessagingService.stopRingtone()
         IncomingCallActivity.dismissCall(callId)
         FloatingCallOverlayService.stop(context, callId)
+        if (markDismissed) {
+            ActiveCallActivity.dismissActiveCall(callId)
+        }
         ChatHeadPlugin.sendStopRingtoneEvent()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager

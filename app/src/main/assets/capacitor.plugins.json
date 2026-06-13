@@ -1,5 +1,9 @@
 [
 	{
+		"pkg": "@capacitor/app",
+		"classpath": "com.capacitorjs.plugins.app.AppPlugin"
+	},
+	{
 		"pkg": "@capacitor/local-notifications",
 		"classpath": "com.capacitorjs.plugins.localnotifications.LocalNotificationsPlugin"
 	},
@@ -8,7 +12,7 @@
 		"classpath": "com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin"
 	},
 	{
-		"pkg": "@capacitor/app",
-		"classpath": "com.capacitorjs.plugins.app.AppPlugin"
+		"pkg": "@capacitor/status-bar",
+		"classpath": "com.capacitorjs.plugins.statusbar.StatusBarPlugin"
 	}
 ]

@@ -25,6 +25,10 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.google.firebase.messaging.RemoteMessage
 import com.capacitorjs.plugins.pushnotifications.MessagingService
+import android.telecom.TelecomManager
+import android.telecom.PhoneAccountHandle
+import android.content.ComponentName
+import android.os.Bundle
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -150,8 +154,8 @@ class MyFirebaseMessagingService : MessagingService() {
                 manager.createNotificationChannel(callChannel)
             }
 
-            // Background Call Channel - DEFAULT IMPORTANCE for Floating Call Overlay (No heads-up pop-up)
-            val bgCallChannelId = "messenger_calls_background"
+            // Background Call Channel - IMPORTANCE_DEFAULT for Floating Call Overlay (No heads-up pop-up)
+            val bgCallChannelId = "messenger_calls_background_v4"
             if (manager.getNotificationChannel(bgCallChannelId) == null) {
                 val bgCallChannel = NotificationChannel(
                     bgCallChannelId,
@@ -160,7 +164,7 @@ class MyFirebaseMessagingService : MessagingService() {
                 ).apply {
                     description = "Incoming calls when screen is unlocked"
                     setSound(null, null)
-                    enableVibration(true)
+                    enableVibration(false)
                     lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
                 manager.createNotificationChannel(bgCallChannel)
@@ -285,7 +289,9 @@ class MyFirebaseMessagingService : MessagingService() {
                 val locked = shouldUseFullScreenIncomingCallUi()
                 Log.d(TAG, "Incoming call push received: locked=$locked appVisible=${MainActivity.isAppVisible}")
 
-                if (locked) {
+                // Prefer native Telecom self-managed ConnectionService if O+ and permission is granted
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    ContextCompat.checkSelfPermission(this, android.Manifest.permission.MANAGE_OWN_CALLS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     showIncomingCallNotification(
                         if (!callerName.isNullOrEmpty()) callerName else "Messenger hívás",
                         callId,
@@ -294,9 +300,14 @@ class MyFirebaseMessagingService : MessagingService() {
                         data["avatarUrl"]
                     )
                 } else {
-                    startRingtone(applicationContext, callId)
-                    // Always show FloatingCallOverlayService on incoming call when unlocked (even if app is visible)
-                    FloatingCallOverlayService.show(applicationContext, callerName, callId, chatId, data["callType"], data["avatarUrl"])
+                    // Fallback to legacy UI logic (handles both locked and unlocked cases natively)
+                    showIncomingCallNotification(
+                        if (!callerName.isNullOrEmpty()) callerName else "Messenger hívás",
+                        callId,
+                        chatId,
+                        data["callType"],
+                        data["avatarUrl"]
+                    )
                 }
                 return
             }
@@ -345,27 +356,58 @@ class MyFirebaseMessagingService : MessagingService() {
             return
         }
 
+        // Try registering incoming call natively using self-managed ConnectionService on O+ devices
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.MANAGE_OWN_CALLS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try {
+                RtcConnectionService.registerPhoneAccount(this)
+                val telecomManager = getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+                if (telecomManager != null) {
+                    val componentName = ComponentName(this, RtcConnectionService::class.java)
+                    val phoneAccountHandle = PhoneAccountHandle(componentName, "MessengerVoipAccount")
+                    val addressUri = Uri.fromParts("tel", callId ?: "0000", null)
+                    
+                    val extras = Bundle().apply {
+                        putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
+                        putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, addressUri)
+                        
+                        val incomingCallExtras = Bundle().apply {
+                            putString("callerName", callerName)
+                            putString("callId", callId)
+                            putString("chatId", chatId)
+                            putString("callType", callType)
+                            putString("avatarUrl", avatarUrl)
+                        }
+                        putBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS, incomingCallExtras)
+                    }
+                    
+                    Log.d(TAG, "Requesting TelecomManager to add incoming call: callId=$callId")
+                    telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "TelecomManager.addNewIncomingCall failed, falling back to legacy flow: ${e.message}")
+            }
+        }
+
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         startRingtone(applicationContext, callId)
 
-        // Show the modern Floating Call Overlay while the user is in another app or in this app.
-        // If the user swipes it away, the foreground call notification remains in the shade.
-        FloatingCallOverlayService.show(applicationContext, callerName, callId, chatId, callType, avatarUrl)
-
-        val shouldUseFullScreen = shouldUseFullScreenIncomingCallUi()
-        Log.d(TAG, "Incoming call notification: callId=$callId fullScreen=$shouldUseFullScreen")
-
-        val notification = CallNotificationHelper.buildIncomingCallNotification(
+        // Directly post the incoming call notification. This is guaranteed to display in the
+        // status bar/drawer with click options even if starting the service is delayed or blocked.
+        val callerAvatar = downloadBitmap(avatarUrl)
+        val incomingCallNotification = CallNotificationHelper.buildIncomingCallNotification(
             this,
             callerName,
             callId,
             chatId,
             callType,
             avatarUrl,
-            downloadBitmap(avatarUrl)
+            callerAvatar
         )
+        manager?.notify(CALL_NOTIFICATION_ID, incomingCallNotification)
 
-        manager?.notify(CALL_NOTIFICATION_ID, notification)
+        // Also launch the floating call overlay service to display the overlay when unlocked
+        FloatingCallOverlayService.show(applicationContext, callerName, callId, chatId, callType, avatarUrl)
     }
 
     private fun managerCancelCallNotification() {

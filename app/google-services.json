@@ -8,9 +8,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:371135412204:android:334bec9acfbcc4bad472c9",
+        "mobilesdk_app_id": "1:371135412204:android:bc522f4b3f9b48fed472c9",
         "android_client_info": {
-          "package_name": "com.aistudio.messenger.mscrdp"
+          "package_name": "com.szilo.messenger"
         }
       },
       "oauth_client": [

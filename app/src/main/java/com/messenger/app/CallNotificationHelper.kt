@@ -17,8 +17,8 @@ import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 
 object CallNotificationHelper {
-    private const val CHANNEL_ID_LOCKSCREEN = "messenger_call_lockscreen_v3"
-    private const val CHANNEL_ID_UNLOCKED = "messenger_call_unlocked_v3"
+    private const val CHANNEL_ID_LOCKSCREEN = "messenger_call_lockscreen_v6"
+    private const val CHANNEL_ID_UNLOCKED = "messenger_call_unlocked_v7"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -28,10 +28,10 @@ object CallNotificationHelper {
         if (manager.getNotificationChannel(CHANNEL_ID_LOCKSCREEN) == null) {
             val channel = NotificationChannel(
                 CHANNEL_ID_LOCKSCREEN,
-                "Messenger hivasok zarolt kepernyon",
-                NotificationManager.IMPORTANCE_HIGH
+                "Bejövő hívások (Lezárt képernyő)",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Bejovo hang- es videohivasok teljes kepernyos megjelenitessel"
+                description = "Bejövő hang- és videohívások teljes képernyős megjelenítéssel lezárt képernyőn"
                 enableLights(true)
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -43,10 +43,10 @@ object CallNotificationHelper {
         if (manager.getNotificationChannel(CHANNEL_ID_UNLOCKED) == null) {
             val channel = NotificationChannel(
                 CHANNEL_ID_UNLOCKED,
-                "Messenger hivasok feloldott kepernyon",
-                NotificationManager.IMPORTANCE_LOW
+                "Bejövő hívások (Feloldott képernyő)",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Bejovo hivasok csendes panelje, amikor a lebego hivasablak lathato"
+                description = "Bejovo hivasok lebego hivasablakkal, fogadas es elutasitas gombokkal az ertesitesi savban"
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setSound(null, null)
                 enableVibration(false)
@@ -68,7 +68,8 @@ object CallNotificationHelper {
 
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         val isLocked = keyguardManager?.isKeyguardLocked == true
-        val typeText = if (callType == "video") "Bejovo videohivas" else "Bejovo hanghivas"
+        val displayName = callerName.takeIf { it.isNotBlank() && it != "Messenger" } ?: "Messenger hívás"
+        val typeText = if (callType == "video") "Bejövő videóhívás" else "Bejövő hanghívás"
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
@@ -79,7 +80,7 @@ object CallNotificationHelper {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("chatId", chatId)
             putExtra("callId", callId)
-            putExtra("callerName", callerName)
+            putExtra("callerName", displayName)
             putExtra("callType", callType)
             putExtra("avatarUrl", avatarUrl)
         }
@@ -90,16 +91,15 @@ object CallNotificationHelper {
             flags
         )
 
-        val acceptIntent = Intent(context, IncomingCallActivity::class.java).apply {
-            action = IncomingCallActivity.ACTION_ACCEPT_CALL
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val acceptIntent = Intent(context, NotificationReceiver::class.java).apply {
+            action = NotificationReceiver.ACTION_ACCEPT_CALL
             putExtra("chatId", chatId)
             putExtra("callId", callId)
-            putExtra("callerName", callerName)
+            putExtra("callerName", displayName)
             putExtra("callType", callType)
             putExtra("avatarUrl", avatarUrl)
         }
-        val acceptPending = PendingIntent.getActivity(
+        val acceptPending = PendingIntent.getBroadcast(
             context,
             stableCallRequestCode(callId, 7777),
             acceptIntent,
@@ -110,6 +110,9 @@ object CallNotificationHelper {
             action = NotificationReceiver.ACTION_DECLINE_CALL
             putExtra("callId", callId)
             putExtra("chatId", chatId)
+            putExtra("callerName", displayName)
+            putExtra("callType", callType)
+            putExtra("avatarUrl", avatarUrl)
         }
         val declinePending = PendingIntent.getBroadcast(
             context,
@@ -129,16 +132,16 @@ object CallNotificationHelper {
             flags
         )
 
-        val avatar = callerAvatar ?: createInitialAvatar(callerName)
+        val avatar = callerAvatar ?: createInitialAvatar(displayName)
         val collapsed = RemoteViews(context.packageName, R.layout.custom_call_notification_collapsed).apply {
-            setTextViewText(R.id.notification_title, callerName)
+            setTextViewText(R.id.notification_title, displayName)
             setTextViewText(R.id.notification_subtitle, typeText)
             setImageViewBitmap(R.id.notification_avatar, avatar)
             setOnClickPendingIntent(R.id.btn_accept, acceptPending)
             setOnClickPendingIntent(R.id.btn_decline, declinePending)
         }
         val expanded = RemoteViews(context.packageName, R.layout.custom_call_notification_expanded).apply {
-            setTextViewText(R.id.notification_title, callerName)
+            setTextViewText(R.id.notification_title, displayName)
             setTextViewText(R.id.notification_subtitle, typeText)
             setImageViewBitmap(R.id.notification_avatar, avatar)
             setOnClickPendingIntent(R.id.btn_accept, acceptPending)
@@ -146,36 +149,43 @@ object CallNotificationHelper {
         }
 
         val channelId = if (isLocked) CHANNEL_ID_LOCKSCREEN else CHANNEL_ID_UNLOCKED
-        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_LOW
+        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_call_chat)
-            .setContentTitle(callerName)
+            .setContentTitle(displayName)
             .setContentText(typeText)
             .setPriority(priority)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(false)
             .setOngoing(true)
-            .setColor(Color.rgb(99, 102, 241))
+            .setColor(Color.rgb(14, 165, 233)) // Soft light blue theme color
+            .setColorized(isLocked)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(fullScreenPending)
             .setDeleteIntent(deletePending)
             .setLargeIcon(avatar)
+            .addAction(R.drawable.ic_call_decline, "Elutasítás", declinePending)
+            .addAction(R.drawable.ic_call_accept, "Fogadás", acceptPending)
             .setTimeoutAfter(60_000L)
 
         builder
             .setCustomContentView(collapsed)
             .setCustomBigContentView(expanded)
-            .setCustomHeadsUpContentView(collapsed)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
 
         if (isLocked) {
-            builder
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setFullScreenIntent(fullScreenPending, true)
+            builder.setCustomHeadsUpContentView(collapsed)
+            builder.setFullScreenIntent(fullScreenPending, true)
+        } else {
+            builder.setSilent(true)
+            builder.setOnlyAlertOnce(true)
         }
 
         val notification = builder.build()
-        notification.flags = notification.flags or Notification.FLAG_INSISTENT
+        if (isLocked) {
+            notification.flags = notification.flags or Notification.FLAG_INSISTENT
+        }
         return notification
     }
 

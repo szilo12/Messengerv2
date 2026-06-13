@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -17,6 +18,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.Settings
@@ -44,11 +46,12 @@ class FloatingCallOverlayService : Service() {
         const val ACTION_SHOW_NOTIFICATION_ONLY = "com.messenger.app.FLOATING_CALL_SHOW_NOTIFICATION_ONLY"
         const val ACTION_HIDE_OVERLAY_ONLY = "com.messenger.app.FLOATING_CALL_HIDE_OVERLAY_ONLY"
         const val ACTION_STOP = "com.messenger.app.FLOATING_CALL_STOP"
-        const val CHANNEL_ID = "messenger_calls_background"
+        const val CHANNEL_ID = "messenger_calls_background_v4"
         const val CALL_NOTIFICATION_ID = 7777
 
         @JvmStatic
-        fun show(context: Context, callerName: String?, callId: String?, chatId: String?, callType: String?, avatarUrl: String?) {
+        @JvmOverloads
+        fun show(context: Context, callerName: String?, callId: String?, chatId: String?, callType: String?, avatarUrl: String?, isOngoingOrOutgoing: Boolean = false) {
             val intent = Intent(context, FloatingCallOverlayService::class.java).apply {
                 action = ACTION_SHOW
                 putExtra("callerName", callerName)
@@ -56,6 +59,7 @@ class FloatingCallOverlayService : Service() {
                 putExtra("chatId", chatId)
                 putExtra("callType", callType)
                 putExtra("avatarUrl", avatarUrl)
+                putExtra("isOngoingOrOutgoing", isOngoingOrOutgoing)
             }
             try {
                 ContextCompat.startForegroundService(context, intent)
@@ -111,7 +115,11 @@ class FloatingCallOverlayService : Service() {
     private var isOngoingOrOutgoing = false
     private var forceShowOverlay = false
     private var overlayHiddenByUser = false
-    private var callStartedAt: Long = 0L
+    private var callStartedAt: Long
+        get() = RtcConnectionManager.callStartedAt
+        set(value) {
+            RtcConnectionManager.callStartedAt = value
+        }
 
     override fun onCreate() {
         super.onCreate()
@@ -123,6 +131,13 @@ class FloatingCallOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        if (intent == null) {
+            removeOverlayView()
+            stopForegroundCompat(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         if (ACTION_STOP == action) {
             removeOverlayView()
             stopForegroundCompat(true)
@@ -145,6 +160,14 @@ class FloatingCallOverlayService : Service() {
         isOngoingOrOutgoing = intent?.getBooleanExtra("isOngoingOrOutgoing", isOngoingOrOutgoing) ?: isOngoingOrOutgoing
         forceShowOverlay = intent?.getBooleanExtra("forceShowOverlay", false) ?: false
 
+        if (!isOngoingOrOutgoing && callId.isNullOrBlank()) {
+            Log.w(TAG, "Ignoring incoming floating call without a valid callId.")
+            removeOverlayView()
+            stopForegroundCompat(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val callStartedAtExtra = intent?.getLongExtra("callStartedAt", 0L) ?: 0L
         if (callStartedAtExtra > 0L) {
             callStartedAt = callStartedAtExtra
@@ -152,8 +175,10 @@ class FloatingCallOverlayService : Service() {
             callStartedAt = System.currentTimeMillis()
         }
 
-        if (ACTION_SHOW == action && forceShowOverlay) {
-            overlayHiddenByUser = false
+        if (ACTION_SHOW == action) {
+            if (forceShowOverlay || isOngoingOrOutgoing) {
+                overlayHiddenByUser = false
+            }
         }
 
         startForegroundCompat(buildCallNotification(), isOngoingOrOutgoing)
@@ -202,10 +227,11 @@ class FloatingCallOverlayService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun showOverlay() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Log.w(TAG, "SYSTEM_ALERT_WINDOW permission missing; falling back to full-screen activity.")
-            if (!isOngoingOrOutgoing) {
+            Log.w(TAG, "SYSTEM_ALERT_WINDOW permission missing; keeping notification instead of unlocked full-screen popup.")
+            if (!isOngoingOrOutgoing && shouldUseFullScreenIncomingCallUi()) {
                 try {
                     val intent = Intent(this, IncomingCallActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -219,7 +245,7 @@ class FloatingCallOverlayService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to launch full-screen incoming call: ${e.message}")
                 }
-            } else {
+            } else if (isOngoingOrOutgoing && shouldUseFullScreenIncomingCallUi()) {
                 try {
                     val intent = Intent(this, ActiveCallActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -278,19 +304,19 @@ class FloatingCallOverlayService : Service() {
 
         // Capsule glassmorphic card container (match Ujmes-main 1:1)
         val cardContainer = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 setMargins(dp(12), 0, dp(12), 0)
             }
 
-            // Dark Glassmorphism style background: deep charcoal with neon blue edge glow
+            // Light Glassmorphism style background: light sky blue with sky edge glow
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(26).toFloat()
-                setColor(Color.parseColor("#E60F172A")) // Translucent slate-900 (90% opacity)
-                setStroke(dp(2), Color.parseColor("#330084FF")) // Smooth neon blue edge glow
+                setColor(Color.parseColor("#E6F0F9FF")) // Translucent sky-50 (90% opacity)
+                setStroke(dp(2), Color.parseColor("#8038BDF8")) // Smooth sky-400 edge glow
             }
 
             elevation = dp(10).toFloat()
@@ -393,7 +419,7 @@ class FloatingCallOverlayService : Service() {
 
         val nameView = TextView(this).apply {
             text = callerName
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(15, 23, 42)) // Slate-900
             textSize = 15f
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
             maxLines = 1
@@ -403,7 +429,7 @@ class FloatingCallOverlayService : Service() {
 
         val subtitleView = TextView(this).apply {
             text = if ("video" == callType) "Bejövő videóhívás" else "Bejövő hanghívás"
-            setTextColor(Color.parseColor("#94A3B8")) // Slate-400
+            setTextColor(Color.rgb(71, 85, 105)) // Slate-600
             textSize = 11f
             maxLines = 1
         }
@@ -433,7 +459,7 @@ class FloatingCallOverlayService : Service() {
                 }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(1).toFloat()
-                    setColor(Color.parseColor("#0084FF"))
+                    setColor(Color.parseColor("#0284C7")) // sky-600
                 }
             }
             visualizerContainer.addView(bar)
@@ -468,7 +494,7 @@ class FloatingCallOverlayService : Service() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val btnChat = roundIconButton(R.drawable.ic_call_chat, Color.parseColor("#26FFFFFF")) {
+        val btnChat = roundIconButton(R.drawable.ic_call_chat, Color.parseColor("#1A0F172A"), Color.rgb(15, 23, 42)) {
             openFullScreen(false)
         }
         val btnDecline = roundIconButton(R.drawable.ic_call_decline, Color.parseColor("#EF4444")) {
@@ -484,6 +510,9 @@ class FloatingCallOverlayService : Service() {
 
         innerContent.addView(buttonsRow)
         cardContainer.addView(innerContent)
+        cardContainer.setOnClickListener {
+            openFullScreen(false)
+        }
         rootLayout.addView(cardContainer)
 
         overlayView = rootLayout
@@ -496,6 +525,26 @@ class FloatingCallOverlayService : Service() {
             Log.e(TAG, "add overlay failed: ${error.message}")
             overlayView = null
         }
+    }
+
+    private fun shouldUseFullScreenIncomingCallUi(): Boolean {
+        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+
+        val isKeyguardLocked = keyguardManager?.isKeyguardLocked == true
+        val isDeviceLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            keyguardManager?.isDeviceLocked == true
+        } else {
+            isKeyguardLocked
+        }
+        val isInteractive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            powerManager?.isInteractive != false
+        } else {
+            @Suppress("DEPRECATION")
+            powerManager?.isScreenOn != false
+        }
+
+        return isKeyguardLocked || isDeviceLocked || !isInteractive
     }
 
     private fun isTouchOnView(root: View, view: View?, touchX: Float, touchY: Float): Boolean {
@@ -683,7 +732,7 @@ class FloatingCallOverlayService : Service() {
         }
     }
 
-    private fun roundIconButton(iconRes: Int, color: Int, action: () -> Unit): FrameLayout {
+    private fun roundIconButton(iconRes: Int, color: Int, iconColor: Int = Color.WHITE, paddingDp: Int = 9, action: () -> Unit): FrameLayout {
         return FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -698,17 +747,18 @@ class FloatingCallOverlayService : Service() {
             }
             addView(ImageView(this@FloatingCallOverlayService).apply {
                 setImageResource(iconRes)
-                setColorFilter(Color.WHITE)
-                setPadding(dp(9), dp(9), dp(9), dp(9))
+                setColorFilter(iconColor)
+                setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp))
             }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun showOngoingMiniOverlay() {
         val displayWidth = resources.displayMetrics.widthPixels
         val displayHeight = resources.displayMetrics.heightPixels
-        val width = minOf(dp(214), displayWidth - dp(28))
-        val height = minOf(dp(356), displayHeight - dp(96))
+        val width = dp(152)
+        val height = dp(60)
 
         val params = WindowManager.LayoutParams(
             width,
@@ -719,112 +769,85 @@ class FloatingCallOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.RIGHT
-            x = dp(18)
-            y = dp(84)
+            gravity = Gravity.TOP or Gravity.RIGHT
+            x = dp(16)
+            y = dp(120)
         }
         overlayParams = params
 
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(14), dp(12), dp(14), dp(14))
-            elevation = dp(18).toFloat()
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(15, 23, 42), Color.rgb(30, 64, 175), Color.rgb(2, 6, 23))
-            ).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), Color.argb(95, 191, 219, 254))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            elevation = dp(12).toFloat()
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(30).toFloat()
+                setColor(Color.parseColor("#E6F0F9FF"))
+                setStroke(dp(1), Color.parseColor("#8038BDF8"))
             }
             isClickable = true
             setOnClickListener { openFullScreen(false) }
         }
 
-        val topRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        root.addView(topRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)))
-
-        val btnSettings = roundIconButton(R.drawable.ic_settings, Color.argb(42, 255, 255, 255)) { }
-        topRow.addView(btnSettings, LinearLayout.LayoutParams(dp(34), dp(34)))
-        topRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        val btnResize = roundIconButton(R.drawable.ic_resize, Color.argb(42, 255, 255, 255)) { openFullScreen(false) }
-        topRow.addView(btnResize, LinearLayout.LayoutParams(dp(34), dp(34)).apply { rightMargin = dp(8) })
-        val btnClose = roundIconButton(R.drawable.ic_close_white, Color.argb(42, 255, 255, 255)) { hideOverlayOnly() }
-        topRow.addView(btnClose, LinearLayout.LayoutParams(dp(34), dp(34)))
-
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-
+        val avatarSize = dp(36)
         val avatar = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setImageResource(R.drawable.ic_avatar_placeholder)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.rgb(30, 41, 59))
-                setStroke(dp(3), Color.argb(210, 255, 255, 255))
+                setColor(Color.rgb(224, 242, 254))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
         }
-        root.addView(avatar, LinearLayout.LayoutParams(dp(58), dp(58)))
+        root.addView(avatar, LinearLayout.LayoutParams(avatarSize, avatarSize).apply {
+            rightMargin = dp(8)
+        })
         loadAvatar(avatarUrl, avatar)
+
+        val infoLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                weight = 1f
+                rightMargin = dp(6)
+            }
+        }
 
         val nameText = TextView(this).apply {
             text = callerName
-            gravity = Gravity.CENTER
-            setTextColor(Color.argb(232, 255, 255, 255))
-            setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), Color.argb(90, 0, 0, 0))
-            textSize = 18f
-            typeface = Typeface.DEFAULT_BOLD
-            maxLines = 2
+            setTextColor(Color.rgb(15, 23, 42)) // Slate-900
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        root.addView(nameText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) })
+        infoLayout.addView(nameText)
 
-        val stateText = if (isOngoingOrOutgoing) {
-            android.widget.Chronometer(this).apply {
-                val elapsedMs = System.currentTimeMillis() - if (callStartedAt > 0L) callStartedAt else System.currentTimeMillis()
-                base = android.os.SystemClock.elapsedRealtime() - elapsedMs
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(191, 219, 254))
-                textSize = 13.5f
-                typeface = Typeface.DEFAULT_BOLD
-                maxLines = 1
-                start()
-            }
-        } else {
-            TextView(this).apply {
-                text = statusText?.takeIf { it.isNotBlank() } ?: "Hivas..."
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(191, 219, 254))
-                textSize = 13.5f
-                typeface = Typeface.DEFAULT_BOLD
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            }
+        val chronometer = android.widget.Chronometer(this).apply {
+            val elapsedMs = System.currentTimeMillis() - if (callStartedAt > 0L) callStartedAt else System.currentTimeMillis()
+            base = android.os.SystemClock.elapsedRealtime() - elapsedMs
+            setTextColor(Color.parseColor("#475569")) // Slate-600
+            textSize = 10f
+            typeface = Typeface.MONOSPACE
+            maxLines = 1
+            start()
         }
-        root.addView(stateText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        infoLayout.addView(chronometer)
+        root.addView(infoLayout)
 
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-
-        val bottomRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val btnDeclineMini = roundIconButton(
+            iconRes = R.drawable.ic_call_decline,
+            color = Color.rgb(239, 68, 68),
+            iconColor = Color.WHITE,
+            paddingDp = 6
+        ) {
+            declineOrEndCall()
         }
-        root.addView(bottomRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)))
+        root.addView(btnDeclineMini, LinearLayout.LayoutParams(dp(28), dp(28)))
 
-        val btnMic = roundIconButton(R.drawable.ic_mic, Color.argb(42, 255, 255, 255)) { ChatHeadPlugin.triggerWebEvent("call_toggle_mic") }
-        bottomRow.addView(btnMic, LinearLayout.LayoutParams(dp(38), dp(38)))
-        bottomRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        val btnSpeaker = roundIconButton(R.drawable.ic_speaker, Color.argb(42, 255, 255, 255)) { ChatHeadPlugin.triggerWebEvent("call_toggle_speaker") }
-        bottomRow.addView(btnSpeaker, LinearLayout.LayoutParams(dp(38), dp(38)))
-        bottomRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        val btnDeclineMini = roundIconButton(R.drawable.ic_call_decline, Color.rgb(239, 68, 68)) { declineOrEndCall() }
-        bottomRow.addView(btnDeclineMini, LinearLayout.LayoutParams(dp(40), dp(40)))
-
-        attachFreeDrag(root, listOf(btnSettings, btnResize, btnClose, btnMic, btnSpeaker, btnDeclineMini))
+        attachFreeDrag(root, listOf(btnDeclineMini))
         overlayView = root
         try {
             windowManager?.addView(root, params)
@@ -839,29 +862,6 @@ class FloatingCallOverlayService : Service() {
         overlayHiddenByUser = true
 
         if (acceptImmediately) {
-            // Start MainActivity to send the event to the JS side
-            val appIntent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("chatId", chatId)
-                putExtra("callId", callId)
-                putExtra("callAction", "accept")
-                putExtra("callerName", callerName)
-                putExtra("callType", callType)
-                putExtra("avatarUrl", avatarUrl)
-            }
-            startActivity(appIntent)
-
-            // Start the beautiful full-screen native ActiveCallActivity
-            val activeCallIntent = Intent(this, ActiveCallActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("chatId", chatId)
-                putExtra("callId", callId)
-                putExtra("callerName", callerName)
-                putExtra("callType", callType)
-                putExtra("avatarUrl", avatarUrl)
-            }
-            startActivity(activeCallIntent)
-
             val broadcastIntent = Intent(this, NotificationReceiver::class.java).apply {
                 action = NotificationReceiver.ACTION_ACCEPT_CALL
                 putExtra("callId", callId)
@@ -891,12 +891,13 @@ class FloatingCallOverlayService : Service() {
                 putExtra("callerName", callerName)
                 putExtra("callType", callType)
                 putExtra("avatarUrl", avatarUrl)
+                putExtra("callStartedAt", callStartedAt)
             }
             startActivity(activeCallIntent)
             return
         }
 
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, IncomingCallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("chatId", chatId)
             putExtra("callId", callId)
@@ -929,76 +930,15 @@ class FloatingCallOverlayService : Service() {
 
     private fun buildIncomingCallNotification(): Notification {
         val callerAvatar = downloadBitmap(avatarUrl)
-        val typeText = if ("video" == callType) "Bejövő videóhívás" else "Bejövő hanghívás"
-
-        val contentIntent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra("chatId", chatId)
-            putExtra("callId", callId)
-            putExtra("callerName", callerName)
-            putExtra("callType", callType)
-            putExtra("avatarUrl", avatarUrl)
-        }
-        val contentPending = PendingIntent.getActivity(
+        return CallNotificationHelper.buildIncomingCallNotification(
             this,
-            stableCallRequestCode(callId, 7799),
-            contentIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            callerName,
+            callId,
+            chatId,
+            callType,
+            avatarUrl,
+            callerAvatar
         )
-
-        val acceptIntent = Intent(this, NotificationReceiver::class.java).apply {
-            action = NotificationReceiver.ACTION_ACCEPT_CALL
-            putExtra("chatId", chatId)
-            putExtra("callId", callId)
-            putExtra("callerName", callerName)
-            putExtra("callType", callType)
-            putExtra("avatarUrl", avatarUrl)
-        }
-        val acceptPending = PendingIntent.getBroadcast(
-            this,
-            stableCallRequestCode(callId, 7779),
-            acceptIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val declineIntent = Intent(this, NotificationReceiver::class.java).apply {
-            action = NotificationReceiver.ACTION_DECLINE_CALL
-            putExtra("chatId", chatId)
-            putExtra("callId", callId)
-            putExtra("callerName", callerName)
-            putExtra("callType", callType)
-            putExtra("avatarUrl", avatarUrl)
-        }
-        val declinePending = PendingIntent.getBroadcast(
-            this,
-            stableCallRequestCode(callId, 7778),
-            declineIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val callerBuilder = Person.Builder().setName(callerName).setImportant(true)
-        if (callerAvatar != null) callerBuilder.setIcon(IconCompat.createWithBitmap(callerAvatar))
-        val caller = callerBuilder.build()
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(callerName)
-            .setContentText(typeText)
-            .setSubText("Lebegő hívásablak")
-            .setSmallIcon(R.drawable.ic_call_chat)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(contentPending)
-            .setVibrate(longArrayOf(0, 400, 180, 400, 180, 600))
-            .setFullScreenIntent(contentPending, true)
-            .setTimeoutAfter(60_000L)
-            .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePending, acceptPending))
-            .apply {
-                if (callerAvatar != null) setLargeIcon(callerAvatar)
-            }
-            .build()
     }
 
     private fun buildOngoingCallNotification(): Notification {
@@ -1006,11 +946,14 @@ class FloatingCallOverlayService : Service() {
         val contentText = statusText?.takeIf { it.isNotBlank() }
             ?: if ("video" == callType) "Videóhívás folyamatban" else "Hanghívás folyamatban"
 
-        val contentIntent = Intent(this, MainActivity::class.java).apply {
+        val contentIntent = Intent(this, ActiveCallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("chatId", chatId)
             putExtra("callId", callId)
-            putExtra("callAction", "maximize")
+            putExtra("callerName", callerName)
+            putExtra("callType", callType)
+            putExtra("avatarUrl", avatarUrl)
+            putExtra("callStartedAt", RtcConnectionManager.callStartedAt)
         }
         val contentPending = PendingIntent.getActivity(
             this,
@@ -1043,7 +986,7 @@ class FloatingCallOverlayService : Service() {
             .setContentText(contentText)
             .setSubText("Hívás...")
             .setSmallIcon(R.drawable.ic_call_chat)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setOngoing(true)
             .setAutoCancel(false)
@@ -1055,7 +998,6 @@ class FloatingCallOverlayService : Service() {
             .setWhen(if (callStartedAt > 0L) callStartedAt else System.currentTimeMillis())
             .setUsesChronometer(true)
             .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, endPending))
-            .addAction(R.drawable.ic_call_decline, "Befejezés", endPending)
             .apply {
                 if (callerAvatar != null) setLargeIcon(callerAvatar)
             }
@@ -1065,14 +1007,15 @@ class FloatingCallOverlayService : Service() {
     private fun ensureCallChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-        val channel = NotificationChannel(CHANNEL_ID, "Hívások", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Bejövő hívások és lebegő hívásablak"
-            setSound(null, null)
-            enableVibration(true)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            val channel = NotificationChannel(CHANNEL_ID, "Hívások", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Bejövő hívások és lebegő hívásablak"
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(channel)
         }
-        manager.createNotificationChannel(channel)
     }
 
     private fun stopForegroundCompat(removeNotification: Boolean) {
@@ -1094,6 +1037,7 @@ class FloatingCallOverlayService : Service() {
         overlayView = null
     }
 
+    @Suppress("DEPRECATION")
     private fun triggerFeedback() {
         try {
             val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator

@@ -11,7 +11,7 @@ android {
         disable 'MissingPermission', 'ScheduleExactAlarm'
     }
     defaultConfig {
-        applicationId "com.aistudio.messenger.mscrdp"
+        applicationId "com.szilo.messenger"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

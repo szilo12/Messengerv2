@@ -36,9 +36,7 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true"
-            android:allowEmbedded="true"
-            android:resizeableActivity="true"
-            android:supportsPictureInPicture="true">
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -54,21 +52,19 @@
             android:turnScreenOn="true"
             android:launchMode="singleInstance"
             android:taskAffinity="com.messenger.app.call"
-            android:resizeableActivity="true"
-            android:supportsPictureInPicture="true"
+            android:resizeableActivity="false"
             android:exported="false"
         />
 
         <activity
             android:name=".ActiveCallActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="false"
+            android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:launchMode="singleInstance"
             android:taskAffinity="com.messenger.app.call"
-            android:resizeableActivity="true"
-            android:supportsPictureInPicture="true"
+            android:resizeableActivity="false"
             android:exported="false"
         />
 
@@ -93,6 +89,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Renders the Floating Call Overlay / Lebegő hívásablak for incoming calls over other applications while keeping a tappable call notification available."
             />
+        </service>
+
+        <!-- RtcConnectionService for Telecom framework integration -->
+        <service
+            android:name=".RtcConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
         </service>
 
         <!-- Custom Firebase Messaging Service to handle incoming notifications in background -->

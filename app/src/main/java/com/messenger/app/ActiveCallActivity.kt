@@ -41,6 +41,7 @@ class ActiveCallActivity : Activity() {
     private var callerName: String? = null
     private var callType: String? = null
     private var avatarUrl: String? = null
+    private var callEnded = false
 
     // Call States
     private var isMuted = false
@@ -66,7 +67,12 @@ class ActiveCallActivity : Activity() {
     private var timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
         override fun run() {
-            secondsElapsed++
+            val start = RtcConnectionManager.callStartedAt
+            if (start > 0L) {
+                secondsElapsed = ((System.currentTimeMillis() - start) / 1000).toInt()
+            } else {
+                secondsElapsed++
+            }
             val minutes = secondsElapsed / 60
             val seconds = secondsElapsed % 60
             timerText.text = String.format(Locale.US, "%02d:%02d", minutes, seconds)
@@ -82,7 +88,7 @@ class ActiveCallActivity : Activity() {
         fun dismissActiveCall(targetCallId: String?) {
             val instance = instanceRef.get()
             if (instance != null && (targetCallId == null || targetCallId == instance.callId)) {
-                instance.finish()
+                instance.showCallEndedScreen()
             }
         }
     }
@@ -97,24 +103,47 @@ class ActiveCallActivity : Activity() {
         callerName = intent.getStringExtra("callerName")
         callType = intent.getStringExtra("callType")
         avatarUrl = intent.getStringExtra("avatarUrl")
+        restoreMissingCallDetails()
+
+        // Initial call start time sync
+        val callStartedAtExtra = intent.getLongExtra("callStartedAt", 0L)
+        if (callStartedAtExtra > 0L) {
+            RtcConnectionManager.callStartedAt = callStartedAtExtra
+        } else if (RtcConnectionManager.callStartedAt == 0L) {
+            RtcConnectionManager.callStartedAt = System.currentTimeMillis()
+        }
+
+        if (NotificationReceiver.isCallDismissed(this, callId)) {
+            showCallEndedScreen()
+            return
+        }
 
         // Initial Audio State Sync
         syncAudioInitialState()
 
-        // Visual Gradient Background (Translucent & Immersive Slate/Midnight Blue Gradient)
+        // Visual Gradient Background (Translucent & Immersive Light Sky Blue Gradient)
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(15, 23, 42), Color.rgb(8, 47, 73), Color.rgb(15, 23, 42))
+                intArrayOf(Color.rgb(240, 249, 255), Color.rgb(224, 242, 254), Color.rgb(186, 230, 253))
             )
         )
 
         setContentView(buildActiveCallScreen())
 
+        // Hide floating calling overlay while the active call screen is open
+        val hideOverlayIntent = Intent(this, FloatingCallOverlayService::class.java).apply {
+            action = FloatingCallOverlayService.ACTION_HIDE_OVERLAY_ONLY
+        }
+        try {
+            startService(hideOverlayIntent)
+        } catch (_: Exception) {}
+
         // Start duration timer
         timerHandler.postDelayed(timerRunnable, 1000)
     }
 
+    @Suppress("DEPRECATION")
     private fun configureWindow() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
@@ -130,8 +159,17 @@ class ActiveCallActivity : Activity() {
             window.statusBarColor = Color.TRANSPARENT
             window.navigationBarColor = Color.TRANSPARENT
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            var flags = window.decorView.systemUiVisibility
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            }
+            window.decorView.systemUiVisibility = flags
+        }
     }
 
+    @Suppress("DEPRECATION")
     private fun syncAudioInitialState() {
         try {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -175,7 +213,7 @@ class ActiveCallActivity : Activity() {
             isFocusable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(40, 255, 255, 255))
+                setColor(Color.argb(25, 15, 23, 42))
             }
 
             val icon = ImageView(this@ActiveCallActivity).apply {
@@ -184,7 +222,7 @@ class ActiveCallActivity : Activity() {
                 }
                 layoutParams = iconLp
                 setImageResource(R.drawable.ic_chevron_down)
-                setColorFilter(Color.WHITE)
+                setColorFilter(Color.rgb(15, 23, 42))
             }
             addView(icon)
 
@@ -215,8 +253,8 @@ class ActiveCallActivity : Activity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(18).toFloat()
-                setColor(Color.argb(80, 79, 70, 229)) // Indigo-600 translucent glow
-                setStroke(dp(1), Color.argb(120, 129, 140, 248))
+                setColor(Color.argb(50, 14, 165, 233)) // Sky-500 translucent glow
+                setStroke(dp(1), Color.argb(100, 14, 165, 233))
             }
 
             cameraToggleDot = View(this@ActiveCallActivity).apply {
@@ -238,7 +276,7 @@ class ActiveCallActivity : Activity() {
                 }
                 layoutParams = iconLp
                 setImageResource(R.drawable.ic_video_on)
-                setColorFilter(Color.rgb(79, 70, 229))
+                setColorFilter(Color.rgb(2, 132, 199))
             }
 
             addView(cameraToggleDot)
@@ -282,7 +320,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(20, 129, 140, 248))
+                setColor(Color.argb(30, 14, 165, 233))
             }
         }
         val ring2 = View(this).apply {
@@ -290,7 +328,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(35, 129, 140, 248))
+                setColor(Color.argb(50, 14, 165, 233))
             }
         }
         val avatarView = ImageView(this).apply {
@@ -301,8 +339,8 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.rgb(30, 41, 59))
-                setStroke(dp(3), Color.WHITE)
+                setColor(Color.rgb(224, 242, 254)) // sky-100 placeholder bg
+                setStroke(dp(3), Color.rgb(14, 165, 233))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
@@ -329,12 +367,12 @@ class ActiveCallActivity : Activity() {
 
         // Caller name
         val nameText = TextView(this).apply {
-            text = if (callerName.isNullOrBlank()) "Ivy Xu" else callerName
-            setTextColor(Color.WHITE)
+            text = displayCallerName()
+            setTextColor(Color.rgb(15, 23, 42)) // slate-900
             textSize = 28f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            setShadowLayer(dp(6).toFloat(), 0f, dp(3).toFloat(), Color.argb(40, 0, 0, 0))
+            setShadowLayer(dp(6).toFloat(), 0f, dp(3).toFloat(), Color.argb(20, 14, 165, 233))
         }
         middleContainer.addView(nameText, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -346,7 +384,7 @@ class ActiveCallActivity : Activity() {
         // Timer counter
         timerText = TextView(this).apply {
             text = "00:00"
-            setTextColor(Color.rgb(148, 163, 184)) // slate-400
+            setTextColor(Color.rgb(71, 85, 105)) // slate-600
             textSize = 15f
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
@@ -384,9 +422,9 @@ class ActiveCallActivity : Activity() {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(32).toFloat()
-                    // Dark elegant glassmorphism
-                    setColor(Color.argb(205, 15, 23, 42)) // zinc-900 / slate-900 with nice density
-                    setStroke(dp(1), Color.argb(35, 255, 255, 255))
+                    // Light elegant glassmorphism
+                    setColor(Color.argb(230, 255, 255, 255)) // translucent white sheet
+                    setStroke(dp(1), Color.argb(100, 14, 165, 233)) // soft sky-500 edge
                 }
                 elevation = dp(16).toFloat()
             }
@@ -487,9 +525,9 @@ class ActiveCallActivity : Activity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 if (isActive) {
-                    setColor(Color.WHITE)
+                    setColor(Color.rgb(14, 165, 233)) // Sky active
                 } else {
-                    setColor(Color.argb(30, 255, 255, 255))
+                    setColor(Color.argb(25, 15, 23, 42)) // Translucent dark slate (10% opacity)
                 }
             }
             setOnClickListener { onClick() }
@@ -499,16 +537,16 @@ class ActiveCallActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
             setImageResource(iconRes)
             if (isActive) {
-                setColorFilter(Color.rgb(15, 23, 42)) // indigo / dark zinc
-            } else {
                 setColorFilter(Color.WHITE)
+            } else {
+                setColorFilter(Color.rgb(15, 23, 42))
             }
         }
         circle.addView(icon)
 
         val tx = TextView(this).apply {
             text = label
-            setTextColor(if (isActive) Color.WHITE else Color.rgb(148, 163, 184))
+            setTextColor(Color.rgb(51, 65, 85)) // slate-700
             textSize = 10f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
@@ -567,6 +605,7 @@ class ActiveCallActivity : Activity() {
         return container
     }
 
+    @Suppress("DEPRECATION")
     private fun toggleSpeakerState() {
         try {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -576,10 +615,10 @@ class ActiveCallActivity : Activity() {
 
                 speakerBtn.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(if (isSpeakerOn) Color.WHITE else Color.argb(30, 255, 255, 255))
+                    setColor(if (isSpeakerOn) Color.rgb(14, 165, 233) else Color.argb(25, 15, 23, 42))
                 }
-                speakerIcon.setColorFilter(if (isSpeakerOn) Color.rgb(15, 23, 42) else Color.WHITE)
-                speakerLabel.setTextColor(if (isSpeakerOn) Color.WHITE else Color.rgb(148, 163, 184))
+                speakerIcon.setColorFilter(if (isSpeakerOn) Color.WHITE else Color.rgb(15, 23, 42))
+                speakerLabel.setTextColor(Color.rgb(51, 65, 85))
 
                 val message = if (isSpeakerOn) "Hangszóró bekapcsolva" else "Hangszóró kikapcsolva"
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -599,10 +638,10 @@ class ActiveCallActivity : Activity() {
 
                 micBtn.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(if (isMuted) Color.WHITE else Color.argb(30, 255, 255, 255))
+                    setColor(if (isMuted) Color.rgb(14, 165, 233) else Color.argb(25, 15, 23, 42))
                 }
-                micIcon.setColorFilter(if (isMuted) Color.rgb(15, 23, 42) else Color.WHITE)
-                micLabel.setTextColor(if (isMuted) Color.WHITE else Color.rgb(148, 163, 184))
+                micIcon.setColorFilter(if (isMuted) Color.WHITE else Color.rgb(15, 23, 42))
+                micLabel.setTextColor(Color.rgb(51, 65, 85))
 
                 val message = if (isMuted) "Mikrofon elnémítva" else "Mikrofon visszahangosítva"
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -619,14 +658,14 @@ class ActiveCallActivity : Activity() {
         val boundsLp = cameraToggleDot.layoutParams as FrameLayout.LayoutParams
         if (isCameraOn) {
             boundsLp.gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(80, 79, 70, 229))
+            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(50, 14, 165, 233))
             cameraToggleIcon.setImageResource(R.drawable.ic_video_on)
-            cameraToggleIcon.setColorFilter(Color.rgb(79, 70, 229))
+            cameraToggleIcon.setColorFilter(Color.rgb(2, 132, 199))
         } else {
             boundsLp.gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
-            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(40, 255, 255, 255))
+            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(25, 15, 23, 42))
             cameraToggleIcon.setImageResource(R.drawable.ic_video_off)
-            cameraToggleIcon.setColorFilter(Color.WHITE)
+            cameraToggleIcon.setColorFilter(Color.rgb(15, 23, 42))
         }
         cameraToggleDot.layoutParams = boundsLp
 
@@ -635,12 +674,17 @@ class ActiveCallActivity : Activity() {
     }
 
     private fun minimizeToOverlay() {
+        if (callEnded || NotificationReceiver.isCallDismissed(this, callId)) {
+            showCallEndedScreen()
+            return
+        }
         // Stop current full screen, show the floating miniature overlay
-        FloatingCallOverlayService.show(this, callerName, callId, chatId, callType, avatarUrl)
+        FloatingCallOverlayService.show(this, callerName, callId, chatId, callType, avatarUrl, true)
         finish()
     }
 
     private fun hangUp() {
+        if (callEnded) return
         // Trigger end call receiver broadcast
         val intent = Intent(this, NotificationReceiver::class.java).apply {
             action = NotificationReceiver.ACTION_END_CALL
@@ -651,7 +695,139 @@ class ActiveCallActivity : Activity() {
             putExtra("avatarUrl", avatarUrl)
         }
         sendBroadcast(intent)
-        finish()
+        showCallEndedScreen()
+    }
+
+    private fun restoreMissingCallDetails() {
+        if (callerName.isNullOrBlank()) callerName = ChatHeadPlugin.activeCallerName
+        if (chatId.isNullOrBlank()) chatId = ChatHeadPlugin.activeChatId
+        if (callType.isNullOrBlank()) callType = ChatHeadPlugin.activeCallType ?: "audio"
+        if (avatarUrl.isNullOrBlank()) avatarUrl = ChatHeadPlugin.activeAvatarUrl
+    }
+
+    private fun displayCallerName(): String {
+        return callerName?.takeIf { it.isNotBlank() && it != "Messenger" } ?: "Messenger hívás"
+    }
+
+    private fun formattedDuration(): String {
+        val start = RtcConnectionManager.callStartedAt
+        val total = if (start > 0L) ((System.currentTimeMillis() - start) / 1000).toInt() else secondsElapsed
+        val minutes = total / 60
+        val seconds = total % 60
+        return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+
+    private fun showCallEndedScreen() {
+        callEnded = true
+        timerHandler.removeCallbacks(timerRunnable)
+        FloatingCallOverlayService.stop(this, callId)
+
+        window.setBackgroundDrawable(
+            GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(239, 249, 255), Color.rgb(186, 230, 253))
+            )
+        )
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(36), dp(24), dp(32))
+        }
+
+        val avatar = ImageView(this).apply {
+            setImageResource(R.drawable.ic_avatar_placeholder)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+                setStroke(dp(3), Color.rgb(14, 165, 233))
+            }
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+        }
+        loadAvatar(avatarUrl, avatar)
+        root.addView(avatar, LinearLayout.LayoutParams(dp(104), dp(104)))
+
+        root.addView(TextView(this).apply {
+            text = displayCallerName()
+            setTextColor(Color.rgb(15, 23, 42))
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(24)
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Hívás vége - ${formattedDuration()}"
+            setTextColor(Color.rgb(71, 85, 105))
+            textSize = 15f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+
+        val feedbackText = TextView(this).apply {
+            text = "Milyen volt a hívás?"
+            setTextColor(Color.rgb(15, 23, 42))
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+        root.addView(feedbackText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(42)
+        })
+
+        val choices = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        choices.addView(feedbackButton("Jó", true, feedbackText), LinearLayout.LayoutParams(dp(132), dp(52)).apply {
+            marginEnd = dp(12)
+        })
+        choices.addView(feedbackButton("Rossz", false, feedbackText), LinearLayout.LayoutParams(dp(132), dp(52)).apply {
+            marginStart = dp(12)
+        })
+        root.addView(choices, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(18)
+        })
+
+        val close = TextView(this).apply {
+            text = "Bezárás"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                cornerRadius = dp(26).toFloat()
+                setColor(Color.rgb(37, 99, 235))
+            }
+            setOnClickListener { finish() }
+        }
+        root.addView(close, LinearLayout.LayoutParams(dp(180), dp(52)).apply {
+            topMargin = dp(32)
+        })
+
+        setContentView(root)
+    }
+
+    private fun feedbackButton(label: String, good: Boolean, feedbackText: TextView): TextView {
+        return TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (good) Color.rgb(22, 101, 52) else Color.rgb(185, 28, 28))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(26).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), if (good) Color.rgb(34, 197, 94) else Color.rgb(248, 113, 113))
+            }
+            setOnClickListener {
+                feedbackText.text = if (good) "Köszönjük, örülünk neki" else "Köszönjük, javítjuk"
+                Toast.makeText(this@ActiveCallActivity, "Visszajelzés mentve", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun loadAvatar(avatarUrl: String?, avatar: ImageView) {
@@ -689,6 +865,24 @@ class ActiveCallActivity : Activity() {
         val dy = ((size - src.height) / 2).toFloat()
         canvas.drawBitmap(src, dx, dy, paint)
         return output
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (callEnded) finish() else minimizeToOverlay()
+    }
+
+    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onBackPressed() {
+        if (callEnded) finish() else minimizeToOverlay()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!callEnded && NotificationReceiver.isCallDismissed(this, callId)) {
+            showCallEndedScreen()
+        }
     }
 
     override fun onDestroy() {

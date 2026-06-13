@@ -3,7 +3,6 @@ package com.messenger.app
 import android.app.Activity
 import android.app.KeyguardManager
 import android.app.NotificationManager
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -20,7 +19,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Rational
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -83,11 +81,19 @@ class IncomingCallActivity : Activity() {
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(12, 26, 59), Color.rgb(15, 23, 42), Color.rgb(26, 5, 51))
+                intArrayOf(Color.rgb(240, 249, 255), Color.rgb(224, 242, 254), Color.rgb(203, 213, 225))
             )
         )
 
         setContentView(buildCallScreen(callerName, callType, avatarUrl))
+
+        // Hide floating calling overlay while the incoming call screen is open
+        val hideOverlayIntent = Intent(this, FloatingCallOverlayService::class.java).apply {
+            action = FloatingCallOverlayService.ACTION_HIDE_OVERLAY_ONLY
+        }
+        try {
+            startService(hideOverlayIntent)
+        } catch (_: Exception) {}
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -105,6 +111,7 @@ class IncomingCallActivity : Activity() {
         else if (ACTION_DECLINE_CALL == action || "ACTION_DECLINE_CALL" == action) declineCall()
     }
 
+    @Suppress("DEPRECATION")
     private fun configureLockScreenWindow() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
@@ -120,27 +127,23 @@ class IncomingCallActivity : Activity() {
             window.statusBarColor = Color.TRANSPARENT
             window.navigationBarColor = Color.TRANSPARENT
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            var flags = window.decorView.systemUiVisibility
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            }
+            window.decorView.systemUiVisibility = flags
+        }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        showFloatingCallOrPictureInPicture()
+        showFloatingCallOverlay()
     }
 
-    private fun showFloatingCallOrPictureInPicture() {
+    private fun showFloatingCallOverlay() {
         if (isFinishing || NotificationReceiver.isCallDismissed(this, callId)) return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(9, 16))
-                    .build()
-                enterPictureInPictureMode(params)
-                return
-            } catch (_: Exception) {
-            }
-        }
-
         FloatingCallOverlayService.show(this, callerName, callId, chatId, callType, avatarUrl)
     }
 
@@ -171,7 +174,7 @@ class IncomingCallActivity : Activity() {
         val pillText = if (isVideo) "BEJÖVŐ VIDEÓHÍVÁS" else "BEJÖVŐ HANGHÍVÁS"
         val pill = TextView(this).apply {
             text = pillText
-            setTextColor(Color.rgb(191, 219, 254))
+            setTextColor(Color.rgb(3, 105, 161)) // sky-700
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -179,8 +182,8 @@ class IncomingCallActivity : Activity() {
             val bg = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(20).toFloat()
-                setColor(Color.argb(60, 99, 102, 241))
-                setStroke(dp(1), Color.argb(80, 165, 180, 252))
+                setColor(Color.argb(30, 14, 165, 233)) // Translucent sky-500
+                setStroke(dp(1), Color.argb(80, 14, 165, 233))
             }
             background = bg
         }
@@ -200,7 +203,7 @@ class IncomingCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(30, 99, 102, 241))
+                setColor(Color.argb(40, 14, 165, 233))
             }
             alpha = 0f
         }
@@ -211,7 +214,7 @@ class IncomingCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(50, 99, 102, 241))
+                setColor(Color.argb(60, 14, 165, 233))
             }
             alpha = 0f
         }
@@ -225,8 +228,8 @@ class IncomingCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.rgb(30, 41, 59))
-                setStroke(dp(3), Color.argb(120, 165, 180, 252))
+                setColor(Color.rgb(224, 242, 254)) // sky-100
+                setStroke(dp(3), Color.argb(120, 14, 165, 233))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
@@ -254,18 +257,18 @@ class IncomingCallActivity : Activity() {
         // ── Caller name ──────────────────────────────────────────────────────────
         val nameText = TextView(this).apply {
             text = safeName
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(15, 23, 42))
             textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setShadowLayer(dp(8).toFloat(), 0f, dp(4).toFloat(), Color.argb(80, 99, 102, 241))
+            setShadowLayer(dp(8).toFloat(), 0f, dp(4).toFloat(), Color.argb(40, 14, 165, 233))
         }
         col.addView(nameText, wrapContent().apply { topMargin = dp(20) })
 
         // ── Subtitle ─────────────────────────────────────────────────────────────
         val subtitle = TextView(this).apply {
             text = if (isVideo) "Videóhívásra hív téged" else "Hanghívásra hív téged"
-            setTextColor(Color.rgb(148, 163, 184))
+            setTextColor(Color.rgb(71, 85, 105))
             textSize = 14f
             gravity = Gravity.CENTER
         }
@@ -286,7 +289,7 @@ class IncomingCallActivity : Activity() {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(4).toFloat()
-                    setColor(Color.argb(180, 99, 102, 241))
+                    setColor(Color.rgb(2, 132, 199))
                 }
                 layoutParams = LinearLayout.LayoutParams(dp(4), dp(h)).apply {
                     setMargins(dp(3), 0, dp(3), 0)
@@ -339,7 +342,7 @@ class IncomingCallActivity : Activity() {
         labelRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
         val declineLabel = TextView(this).apply {
             text = "Elutasítás"
-            setTextColor(Color.argb(180, 255, 255, 255))
+            setTextColor(Color.rgb(71, 85, 105))
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -349,7 +352,7 @@ class IncomingCallActivity : Activity() {
 
         val acceptLabel = TextView(this).apply {
             text = "Fogadás"
-            setTextColor(Color.argb(180, 255, 255, 255))
+            setTextColor(Color.rgb(71, 85, 105))
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -407,7 +410,6 @@ class IncomingCallActivity : Activity() {
         MyFirebaseMessagingService.stopRingtone()
         FloatingCallOverlayService.stop(this, callId)
         cancelCallNotification()
-        NotificationReceiver.markCallDismissed(this, callId)
         ChatHeadPlugin.queueCallAction(this, callId, "accept", chatId, callerName ?: "", callType ?: "", avatarUrl ?: "")
         NotificationReceiver.reportAcceptToBackend(this, callId)
         val appIntent = Intent(this, MainActivity::class.java).apply {
@@ -428,6 +430,7 @@ class IncomingCallActivity : Activity() {
             putExtra("callerName", callerName)
             putExtra("callType", callType)
             putExtra("avatarUrl", avatarUrl)
+            putExtra("callStartedAt", if (RtcConnectionManager.callStartedAt > 0L) RtcConnectionManager.callStartedAt else System.currentTimeMillis())
         }
         startActivity(activeCallIntent)
         finish()

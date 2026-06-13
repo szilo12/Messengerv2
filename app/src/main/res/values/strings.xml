@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Messenger</string>
     <string name="title_activity_main">Messenger</string>
-    <string name="package_name">com.messenger.app</string>
-    <string name="custom_url_scheme">com.messenger.app</string>
+    <string name="package_name">com.szilo.messenger</string>
+    <string name="custom_url_scheme">com.szilo.messenger</string>
 </resources>
