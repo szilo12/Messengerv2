@@ -36,6 +36,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(ChatHeadPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Set status bar and navigation bar to app's dark purple background color
@@ -43,11 +44,8 @@ public class MainActivity extends BridgeActivity {
         getWindow().setStatusBarColor(appBgColor);
         getWindow().setNavigationBarColor(appBgColor);
 
-        // Use light icons (white) on the dark bar backgrounds
-        WindowInsetsControllerCompat insetsController =
-            new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
-        insetsController.setAppearanceLightStatusBars(false);
-        insetsController.setAppearanceLightNavigationBars(false);
+        // Use white icons on the dark bar backgrounds, including Samsung/Android 15.
+        applyDarkSystemBarAppearance();
 
         allowWebViewMediaPermissions();
         requestMediaPermissionsIfNeeded();
@@ -185,6 +183,32 @@ public class MainActivity extends BridgeActivity {
 
         // Update ongoing call banner inside the app
         updateOngoingCallBanner();
+    }
+
+    private void applyDarkSystemBarAppearance() {
+        View decorView = getWindow().getDecorView();
+        WindowInsetsControllerCompat compatController =
+            new WindowInsetsControllerCompat(getWindow(), decorView);
+        compatController.setAppearanceLightStatusBars(false);
+        compatController.setAppearanceLightNavigationBars(false);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsAppearance(
+                    0,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS |
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                );
+            }
+        } else {
+            int visibility = decorView.getSystemUiVisibility();
+            visibility &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                visibility &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            decorView.setSystemUiVisibility(visibility);
+        }
     }
 
     @Override

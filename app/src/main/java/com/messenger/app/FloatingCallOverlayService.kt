@@ -311,12 +311,12 @@ class FloatingCallOverlayService : Service() {
                 setMargins(dp(12), 0, dp(12), 0)
             }
 
-            // Light Glassmorphism style background: light sky blue with sky edge glow
+            // Dark Glassmorphism style background: dark slate with blue edge glow
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(26).toFloat()
-                setColor(Color.parseColor("#E6F0F9FF")) // Translucent sky-50 (90% opacity)
-                setStroke(dp(2), Color.parseColor("#8038BDF8")) // Smooth sky-400 edge glow
+                setColor(Color.parseColor("#E60F172A")) // Translucent slate-900 (90% opacity)
+                setStroke(dp(2), Color.parseColor("#803B82F6")) // Smooth blue-500 edge glow
             }
 
             elevation = dp(10).toFloat()
@@ -419,7 +419,7 @@ class FloatingCallOverlayService : Service() {
 
         val nameView = TextView(this).apply {
             text = callerName
-            setTextColor(Color.rgb(15, 23, 42)) // Slate-900
+            setTextColor(Color.WHITE)
             textSize = 15f
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
             maxLines = 1
@@ -429,7 +429,7 @@ class FloatingCallOverlayService : Service() {
 
         val subtitleView = TextView(this).apply {
             text = if ("video" == callType) "Bejövő videóhívás" else "Bejövő hanghívás"
-            setTextColor(Color.rgb(71, 85, 105)) // Slate-600
+            setTextColor(Color.parseColor("#94A3B8")) // Slate-400
             textSize = 11f
             maxLines = 1
         }
@@ -459,7 +459,7 @@ class FloatingCallOverlayService : Service() {
                 }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(1).toFloat()
-                    setColor(Color.parseColor("#0284C7")) // sky-600
+                    setColor(Color.parseColor("#38BDF8")) // sky-400
                 }
             }
             visualizerContainer.addView(bar)
@@ -494,7 +494,7 @@ class FloatingCallOverlayService : Service() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val btnChat = roundIconButton(R.drawable.ic_call_chat, Color.parseColor("#1A0F172A"), Color.rgb(15, 23, 42)) {
+        val btnChat = roundIconButton(R.drawable.ic_call_chat, Color.parseColor("#33FFFFFF"), Color.WHITE) {
             openFullScreen(false)
         }
         val btnDecline = roundIconButton(R.drawable.ic_call_decline, Color.parseColor("#EF4444")) {
@@ -783,8 +783,8 @@ class FloatingCallOverlayService : Service() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(30).toFloat()
-                setColor(Color.parseColor("#E6F0F9FF"))
-                setStroke(dp(1), Color.parseColor("#8038BDF8"))
+                setColor(Color.parseColor("#E60F172A"))
+                setStroke(dp(1), Color.parseColor("#803B82F6"))
             }
             isClickable = true
             setOnClickListener { openFullScreen(false) }
@@ -796,7 +796,7 @@ class FloatingCallOverlayService : Service() {
             setImageResource(R.drawable.ic_avatar_placeholder)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.rgb(224, 242, 254))
+                setColor(Color.rgb(30, 41, 59))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
@@ -817,7 +817,7 @@ class FloatingCallOverlayService : Service() {
 
         val nameText = TextView(this).apply {
             text = callerName
-            setTextColor(Color.rgb(15, 23, 42)) // Slate-900
+            setTextColor(Color.WHITE)
             textSize = 12f
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
             maxLines = 1
@@ -828,7 +828,7 @@ class FloatingCallOverlayService : Service() {
         val chronometer = android.widget.Chronometer(this).apply {
             val elapsedMs = System.currentTimeMillis() - if (callStartedAt > 0L) callStartedAt else System.currentTimeMillis()
             base = android.os.SystemClock.elapsedRealtime() - elapsedMs
-            setTextColor(Color.parseColor("#475569")) // Slate-600
+            setTextColor(Color.parseColor("#94A3B8")) // Slate-400
             textSize = 10f
             typeface = Typeface.MONOSPACE
             maxLines = 1

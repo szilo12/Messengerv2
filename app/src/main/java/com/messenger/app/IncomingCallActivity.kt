@@ -23,6 +23,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import androidx.core.view.WindowInsetsControllerCompat
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RelativeLayout
@@ -81,7 +82,7 @@ class IncomingCallActivity : Activity() {
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(240, 249, 255), Color.rgb(224, 242, 254), Color.rgb(203, 213, 225))
+                intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
             )
         )
 
@@ -129,9 +130,9 @@ class IncomingCallActivity : Activity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             var flags = window.decorView.systemUiVisibility
-            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
             }
             window.decorView.systemUiVisibility = flags
         }
@@ -174,7 +175,7 @@ class IncomingCallActivity : Activity() {
         val pillText = if (isVideo) "BEJÖVŐ VIDEÓHÍVÁS" else "BEJÖVŐ HANGHÍVÁS"
         val pill = TextView(this).apply {
             text = pillText
-            setTextColor(Color.rgb(3, 105, 161)) // sky-700
+            setTextColor(Color.parseColor("#38BDF8")) // sky-400
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -182,8 +183,8 @@ class IncomingCallActivity : Activity() {
             val bg = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(20).toFloat()
-                setColor(Color.argb(30, 14, 165, 233)) // Translucent sky-500
-                setStroke(dp(1), Color.argb(80, 14, 165, 233))
+                setColor(Color.argb(35, 56, 189, 248)) // Translucent sky-400
+                setStroke(dp(1), Color.argb(80, 56, 189, 248))
             }
             background = bg
         }
@@ -257,18 +258,18 @@ class IncomingCallActivity : Activity() {
         // ── Caller name ──────────────────────────────────────────────────────────
         val nameText = TextView(this).apply {
             text = safeName
-            setTextColor(Color.rgb(15, 23, 42))
+            setTextColor(Color.WHITE)
             textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setShadowLayer(dp(8).toFloat(), 0f, dp(4).toFloat(), Color.argb(40, 14, 165, 233))
+            setShadowLayer(dp(8).toFloat(), 0f, dp(4).toFloat(), Color.argb(40, 56, 189, 248))
         }
         col.addView(nameText, wrapContent().apply { topMargin = dp(20) })
 
         // ── Subtitle ─────────────────────────────────────────────────────────────
         val subtitle = TextView(this).apply {
             text = if (isVideo) "Videóhívásra hív téged" else "Hanghívásra hív téged"
-            setTextColor(Color.rgb(71, 85, 105))
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 14f
             gravity = Gravity.CENTER
         }
@@ -310,15 +311,15 @@ class IncomingCallActivity : Activity() {
         buttonRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
 
         // Decline button
-        val declineBtn = buildRoundButton("✖", Color.rgb(239, 68, 68), Color.rgb(153, 27, 27))
+        val declineBtn = buildRoundButton(R.drawable.ic_call_decline, Color.rgb(239, 68, 68), Color.rgb(153, 27, 27))
         declineBtn.setOnClickListener { declineCall() }
         buttonRow.addView(declineBtn, LinearLayout.LayoutParams(dp(80), dp(80)))
 
         buttonRow.addView(View(this), LinearLayout.LayoutParams(dp(60), 0))
 
         // Accept button
-        val acceptIcon = if (isVideo) "📹" else "📞"
-        val acceptBtn = buildRoundButton(acceptIcon, Color.rgb(34, 197, 94), Color.rgb(21, 128, 61))
+        val acceptIconRes = if (isVideo) R.drawable.ic_video_on else R.drawable.ic_call_accept
+        val acceptBtn = buildRoundButton(acceptIconRes, Color.rgb(34, 197, 94), Color.rgb(21, 128, 61))
         acceptBtn.setOnClickListener { acceptCall() }
         buttonRow.addView(acceptBtn, LinearLayout.LayoutParams(dp(80), dp(80)))
 
@@ -342,7 +343,7 @@ class IncomingCallActivity : Activity() {
         labelRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
         val declineLabel = TextView(this).apply {
             text = "Elutasítás"
-            setTextColor(Color.rgb(71, 85, 105))
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -352,7 +353,7 @@ class IncomingCallActivity : Activity() {
 
         val acceptLabel = TextView(this).apply {
             text = "Fogadás"
-            setTextColor(Color.rgb(71, 85, 105))
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -370,12 +371,8 @@ class IncomingCallActivity : Activity() {
         return root
     }
 
-    private fun buildRoundButton(label: String, colorTop: Int, colorBottom: Int): TextView {
-        return TextView(this).apply {
-            text = label
-            setTextColor(Color.WHITE)
-            textSize = 28f
-            gravity = Gravity.CENTER
+    private fun buildRoundButton(iconResId: Int, colorTop: Int, colorBottom: Int): FrameLayout {
+        val root = FrameLayout(this).apply {
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(colorTop, colorBottom)
@@ -386,6 +383,17 @@ class IncomingCallActivity : Activity() {
             isClickable = true
             isFocusable = true
         }
+        val img = ImageView(this).apply {
+            setImageResource(iconResId)
+            setColorFilter(Color.WHITE)
+            setPadding(dp(22), dp(22), dp(22), dp(22))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        root.addView(img)
+        return root
     }
 
     private fun animatePing(view: View, delayMs: Long) {

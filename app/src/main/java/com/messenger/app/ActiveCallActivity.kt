@@ -121,11 +121,11 @@ class ActiveCallActivity : Activity() {
         // Initial Audio State Sync
         syncAudioInitialState()
 
-        // Visual Gradient Background (Translucent & Immersive Light Sky Blue Gradient)
+        // Visual Gradient Background (Translucent & Immersive Dark Gradient)
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(240, 249, 255), Color.rgb(224, 242, 254), Color.rgb(186, 230, 253))
+                intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
             )
         )
 
@@ -161,9 +161,9 @@ class ActiveCallActivity : Activity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             var flags = window.decorView.systemUiVisibility
-            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
             }
             window.decorView.systemUiVisibility = flags
         }
@@ -213,7 +213,7 @@ class ActiveCallActivity : Activity() {
             isFocusable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(25, 15, 23, 42))
+                setColor(Color.argb(35, 255, 255, 255))
             }
 
             val icon = ImageView(this@ActiveCallActivity).apply {
@@ -222,7 +222,7 @@ class ActiveCallActivity : Activity() {
                 }
                 layoutParams = iconLp
                 setImageResource(R.drawable.ic_chevron_down)
-                setColorFilter(Color.rgb(15, 23, 42))
+                setColorFilter(Color.WHITE)
             }
             addView(icon)
 
@@ -253,7 +253,7 @@ class ActiveCallActivity : Activity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(18).toFloat()
-                setColor(Color.argb(50, 14, 165, 233)) // Sky-500 translucent glow
+                setColor(Color.argb(60, 14, 165, 233)) // Sky translucent glow
                 setStroke(dp(1), Color.argb(100, 14, 165, 233))
             }
 
@@ -276,7 +276,7 @@ class ActiveCallActivity : Activity() {
                 }
                 layoutParams = iconLp
                 setImageResource(R.drawable.ic_video_on)
-                setColorFilter(Color.rgb(2, 132, 199))
+                setColorFilter(Color.WHITE)
             }
 
             addView(cameraToggleDot)
@@ -320,7 +320,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(30, 14, 165, 233))
+                setColor(Color.argb(40, 56, 189, 248))
             }
         }
         val ring2 = View(this).apply {
@@ -328,7 +328,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(50, 14, 165, 233))
+                setColor(Color.argb(60, 56, 189, 248))
             }
         }
         val avatarView = ImageView(this).apply {
@@ -339,8 +339,8 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.rgb(224, 242, 254)) // sky-100 placeholder bg
-                setStroke(dp(3), Color.rgb(14, 165, 233))
+                setColor(Color.rgb(30, 41, 59)) // slate-800 placeholder bg
+                setStroke(dp(3), Color.parseColor("#38BDF8"))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
@@ -368,11 +368,11 @@ class ActiveCallActivity : Activity() {
         // Caller name
         val nameText = TextView(this).apply {
             text = displayCallerName()
-            setTextColor(Color.rgb(15, 23, 42)) // slate-900
+            setTextColor(Color.WHITE)
             textSize = 28f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            setShadowLayer(dp(6).toFloat(), 0f, dp(3).toFloat(), Color.argb(20, 14, 165, 233))
+            setShadowLayer(dp(6).toFloat(), 0f, dp(3).toFloat(), Color.argb(30, 56, 189, 248))
         }
         middleContainer.addView(nameText, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -384,7 +384,7 @@ class ActiveCallActivity : Activity() {
         // Timer counter
         timerText = TextView(this).apply {
             text = "00:00"
-            setTextColor(Color.rgb(71, 85, 105)) // slate-600
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 15f
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
@@ -422,9 +422,9 @@ class ActiveCallActivity : Activity() {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(32).toFloat()
-                    // Light elegant glassmorphism
-                    setColor(Color.argb(230, 255, 255, 255)) // translucent white sheet
-                    setStroke(dp(1), Color.argb(100, 14, 165, 233)) // soft sky-500 edge
+                    // Dark elegant glassmorphism
+                    setColor(Color.argb(230, 15, 23, 42)) // translucent slate-900 sheet
+                    setStroke(dp(1), Color.argb(100, 56, 189, 248)) // soft sky-400 edge
                 }
                 elevation = dp(16).toFloat()
             }
@@ -527,7 +527,7 @@ class ActiveCallActivity : Activity() {
                 if (isActive) {
                     setColor(Color.rgb(14, 165, 233)) // Sky active
                 } else {
-                    setColor(Color.argb(25, 15, 23, 42)) // Translucent dark slate (10% opacity)
+                    setColor(Color.argb(35, 255, 255, 255)) // Translucent white (15% opacity)
                 }
             }
             setOnClickListener { onClick() }
@@ -539,14 +539,14 @@ class ActiveCallActivity : Activity() {
             if (isActive) {
                 setColorFilter(Color.WHITE)
             } else {
-                setColorFilter(Color.rgb(15, 23, 42))
+                setColorFilter(Color.parseColor("#E2E8F0"))
             }
         }
         circle.addView(icon)
 
         val tx = TextView(this).apply {
             text = label
-            setTextColor(Color.rgb(51, 65, 85)) // slate-700
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 10f
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
@@ -615,10 +615,10 @@ class ActiveCallActivity : Activity() {
 
                 speakerBtn.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(if (isSpeakerOn) Color.rgb(14, 165, 233) else Color.argb(25, 15, 23, 42))
+                    setColor(if (isSpeakerOn) Color.rgb(14, 165, 233) else Color.argb(35, 255, 255, 255))
                 }
-                speakerIcon.setColorFilter(if (isSpeakerOn) Color.WHITE else Color.rgb(15, 23, 42))
-                speakerLabel.setTextColor(Color.rgb(51, 65, 85))
+                speakerIcon.setColorFilter(if (isSpeakerOn) Color.WHITE else Color.parseColor("#E2E8F0"))
+                speakerLabel.setTextColor(Color.parseColor("#94A3B8"))
 
                 val message = if (isSpeakerOn) "Hangszóró bekapcsolva" else "Hangszóró kikapcsolva"
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -638,10 +638,10 @@ class ActiveCallActivity : Activity() {
 
                 micBtn.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(if (isMuted) Color.rgb(14, 165, 233) else Color.argb(25, 15, 23, 42))
+                    setColor(if (isMuted) Color.rgb(14, 165, 233) else Color.argb(35, 255, 255, 255))
                 }
-                micIcon.setColorFilter(if (isMuted) Color.WHITE else Color.rgb(15, 23, 42))
-                micLabel.setTextColor(Color.rgb(51, 65, 85))
+                micIcon.setColorFilter(if (isMuted) Color.WHITE else Color.parseColor("#E2E8F0"))
+                micLabel.setTextColor(Color.parseColor("#94A3B8"))
 
                 val message = if (isMuted) "Mikrofon elnémítva" else "Mikrofon visszahangosítva"
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -658,14 +658,14 @@ class ActiveCallActivity : Activity() {
         val boundsLp = cameraToggleDot.layoutParams as FrameLayout.LayoutParams
         if (isCameraOn) {
             boundsLp.gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(50, 14, 165, 233))
+            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(60, 14, 165, 233))
             cameraToggleIcon.setImageResource(R.drawable.ic_video_on)
-            cameraToggleIcon.setColorFilter(Color.rgb(2, 132, 199))
+            cameraToggleIcon.setColorFilter(Color.WHITE)
         } else {
             boundsLp.gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
-            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(25, 15, 23, 42))
+            (cameraTogglePill.background as GradientDrawable).setColor(Color.argb(35, 255, 255, 255))
             cameraToggleIcon.setImageResource(R.drawable.ic_video_off)
-            cameraToggleIcon.setColorFilter(Color.rgb(15, 23, 42))
+            cameraToggleIcon.setColorFilter(Color.parseColor("#E2E8F0"))
         }
         cameraToggleDot.layoutParams = boundsLp
 
@@ -725,7 +725,7 @@ class ActiveCallActivity : Activity() {
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(239, 249, 255), Color.rgb(186, 230, 253))
+                intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
             )
         )
 
@@ -740,8 +740,8 @@ class ActiveCallActivity : Activity() {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.WHITE)
-                setStroke(dp(3), Color.rgb(14, 165, 233))
+                setColor(Color.parseColor("#1E293B"))
+                setStroke(dp(3), Color.parseColor("#38BDF8"))
             }
             setPadding(dp(10), dp(10), dp(10), dp(10))
         }
@@ -750,7 +750,7 @@ class ActiveCallActivity : Activity() {
 
         root.addView(TextView(this).apply {
             text = displayCallerName()
-            setTextColor(Color.rgb(15, 23, 42))
+            setTextColor(Color.WHITE)
             textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -760,7 +760,7 @@ class ActiveCallActivity : Activity() {
 
         root.addView(TextView(this).apply {
             text = "Hívás vége - ${formattedDuration()}"
-            setTextColor(Color.rgb(71, 85, 105))
+            setTextColor(Color.parseColor("#94A3B8")) // slate-400
             textSize = 15f
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -769,7 +769,7 @@ class ActiveCallActivity : Activity() {
 
         val feedbackText = TextView(this).apply {
             text = "Milyen volt a hívás?"
-            setTextColor(Color.rgb(15, 23, 42))
+            setTextColor(Color.WHITE)
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
@@ -817,11 +817,11 @@ class ActiveCallActivity : Activity() {
             gravity = Gravity.CENTER
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (good) Color.rgb(22, 101, 52) else Color.rgb(185, 28, 28))
+            setTextColor(if (good) Color.parseColor("#4ADE80") else Color.parseColor("#F87171")) // light green / light red
             background = GradientDrawable().apply {
                 cornerRadius = dp(26).toFloat()
-                setColor(Color.WHITE)
-                setStroke(dp(1), if (good) Color.rgb(34, 197, 94) else Color.rgb(248, 113, 113))
+                setColor(Color.argb(25, 255, 255, 255))
+                setStroke(dp(1), if (good) Color.parseColor("#22C55E") else Color.parseColor("#EF4444"))
             }
             setOnClickListener {
                 feedbackText.text = if (good) "Köszönjük, örülünk neki" else "Köszönjük, javítjuk"

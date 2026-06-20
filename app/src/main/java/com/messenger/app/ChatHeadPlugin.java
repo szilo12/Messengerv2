@@ -142,6 +142,74 @@ public class ChatHeadPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setAppIcon(PluginCall call) {
+        String requestedIcon = call.getString("icon", "crystal");
+        final String selectedIcon;
+        if ("heart".equals(requestedIcon) || "star".equals(requestedIcon) || "flower".equals(requestedIcon)) {
+            selectedIcon = requestedIcon;
+        } else {
+            selectedIcon = "crystal";
+        }
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                android.content.pm.PackageManager packageManager = getContext().getPackageManager();
+                String packageName = getContext().getPackageName();
+                String classPackage = ChatHeadPlugin.class.getPackage().getName();
+                String[] aliases = { "CrystalIcon", "HeartIcon", "StarIcon", "FlowerIcon" };
+                String selectedAlias = "heart".equals(selectedIcon)
+                    ? "HeartIcon"
+                    : ("star".equals(selectedIcon)
+                        ? "StarIcon"
+                        : ("flower".equals(selectedIcon) ? "FlowerIcon" : "CrystalIcon"));
+
+                // Enable the new launcher entry before disabling the old one so
+                // the icon never disappears from the home screen/app drawer.
+                packageManager.setComponentEnabledSetting(
+                    new android.content.ComponentName(packageName, classPackage + "." + selectedAlias),
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                );
+
+                for (String alias : aliases) {
+                    if (alias.equals(selectedAlias)) continue;
+                    packageManager.setComponentEnabledSetting(
+                        new android.content.ComponentName(packageName, classPackage + "." + alias),
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP
+                    );
+                }
+
+                getContext()
+                    .getSharedPreferences("messenger_app_preferences", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("appIcon", selectedIcon)
+                    .apply();
+
+                JSObject result = new JSObject();
+                result.put("icon", selectedIcon);
+                call.resolve(result);
+            } catch (Exception error) {
+                call.reject("Failed to change app icon: " + error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getAppIcon(PluginCall call) {
+        String selectedIcon = getContext()
+            .getSharedPreferences("messenger_app_preferences", android.content.Context.MODE_PRIVATE)
+            .getString("appIcon", "crystal");
+        if (!"crystal".equals(selectedIcon) && !"heart".equals(selectedIcon)
+                && !"star".equals(selectedIcon) && !"flower".equals(selectedIcon)) {
+            selectedIcon = "crystal";
+        }
+        JSObject result = new JSObject();
+        result.put("icon", selectedIcon);
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void setNotificationPreferences(PluginCall call) {
         boolean soundEnabled = call.getBoolean("soundEnabled", true);
         boolean vibrationEnabled = call.getBoolean("vibrationEnabled", true);
@@ -526,6 +594,27 @@ public class ChatHeadPlugin extends Plugin {
                 }
                 if (isLightNav != null) {
                     insetsController.setAppearanceLightNavigationBars(isLightNav);
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.view.WindowInsetsController platformController =
+                        getActivity().getWindow().getInsetsController();
+                    if (platformController != null) {
+                        int appearance = 0;
+                        int mask = 0;
+                        if (isLightStatus != null) {
+                            mask |= android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                            if (isLightStatus) {
+                                appearance |= android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                            }
+                        }
+                        if (isLightNav != null) {
+                            mask |= android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                            if (isLightNav) {
+                                appearance |= android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                            }
+                        }
+                        platformController.setSystemBarsAppearance(appearance, mask);
+                    }
                 }
                 call.resolve();
             } catch (Exception e) {

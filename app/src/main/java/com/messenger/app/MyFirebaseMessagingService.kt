@@ -258,6 +258,7 @@ class MyFirebaseMessagingService : MessagingService() {
                 NotificationReceiver.markCallDismissed(applicationContext, callId)
                 stopRingtone()
                 IncomingCallActivity.dismissCall(callId)
+                ActiveCallActivity.dismissActiveCall(callId)
                 FloatingCallOverlayService.stop(applicationContext, callId)
                 ChatHeadPlugin.sendStopRingtoneEvent()
                 managerCancelCallNotification()

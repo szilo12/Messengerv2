@@ -15,10 +15,12 @@ import android.graphics.Typeface
 import android.os.Build
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 
 object CallNotificationHelper {
-    private const val CHANNEL_ID_LOCKSCREEN = "messenger_call_lockscreen_v6"
-    private const val CHANNEL_ID_UNLOCKED = "messenger_call_unlocked_v7"
+    private const val CHANNEL_ID_LOCKSCREEN = "messenger_call_lockscreen_v10"
+    private const val CHANNEL_ID_UNLOCKED = "messenger_call_unlocked_v10"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -29,7 +31,7 @@ object CallNotificationHelper {
             val channel = NotificationChannel(
                 CHANNEL_ID_LOCKSCREEN,
                 "Bejövő hívások (Lezárt képernyő)",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Bejövő hang- és videohívások teljes képernyős megjelenítéssel lezárt képernyőn"
                 enableLights(true)
@@ -133,49 +135,35 @@ object CallNotificationHelper {
         )
 
         val avatar = callerAvatar ?: createInitialAvatar(displayName)
-        val collapsed = RemoteViews(context.packageName, R.layout.custom_call_notification_collapsed).apply {
-            setTextViewText(R.id.notification_title, displayName)
-            setTextViewText(R.id.notification_subtitle, typeText)
-            setImageViewBitmap(R.id.notification_avatar, avatar)
-            setOnClickPendingIntent(R.id.btn_accept, acceptPending)
-            setOnClickPendingIntent(R.id.btn_decline, declinePending)
-        }
-        val expanded = RemoteViews(context.packageName, R.layout.custom_call_notification_expanded).apply {
-            setTextViewText(R.id.notification_title, displayName)
-            setTextViewText(R.id.notification_subtitle, typeText)
-            setImageViewBitmap(R.id.notification_avatar, avatar)
-            setOnClickPendingIntent(R.id.btn_accept, acceptPending)
-            setOnClickPendingIntent(R.id.btn_decline, declinePending)
-        }
+        val person = Person.Builder()
+            .setName(displayName)
+            .setIcon(IconCompat.createWithBitmap(avatar))
+            .setImportant(true)
+            .build()
 
         val channelId = if (isLocked) CHANNEL_ID_LOCKSCREEN else CHANNEL_ID_UNLOCKED
-        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT
+        val priority = if (isLocked) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_call_chat)
-            .setContentTitle(displayName)
-            .setContentText(typeText)
             .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(false)
             .setOngoing(true)
             .setColor(Color.rgb(14, 165, 233)) // Soft light blue theme color
-            .setColorized(isLocked)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(fullScreenPending)
             .setDeleteIntent(deletePending)
-            .setLargeIcon(avatar)
-            .addAction(R.drawable.ic_call_decline, "Elutasítás", declinePending)
-            .addAction(R.drawable.ic_call_accept, "Fogadás", acceptPending)
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    person,
+                    declinePending,
+                    acceptPending
+                )
+            )
             .setTimeoutAfter(60_000L)
 
-        builder
-            .setCustomContentView(collapsed)
-            .setCustomBigContentView(expanded)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-
         if (isLocked) {
-            builder.setCustomHeadsUpContentView(collapsed)
             builder.setFullScreenIntent(fullScreenPending, true)
         } else {
             builder.setSilent(true)
