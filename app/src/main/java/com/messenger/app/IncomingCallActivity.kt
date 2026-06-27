@@ -45,6 +45,9 @@ class IncomingCallActivity : Activity() {
         const val ACTION_DECLINE_CALL = "ACTION_DECLINE_CALL"
         private var instanceRef = WeakReference<IncomingCallActivity>(null)
 
+        @JvmField
+        var isActivityVisible = false
+
         @JvmStatic
         fun dismissCall(incomingCallId: String?) {
             val instance = instanceRef.get()
@@ -416,21 +419,12 @@ class IncomingCallActivity : Activity() {
 
     private fun acceptCall() {
         MyFirebaseMessagingService.stopRingtone()
+        RtcConnectionManager.callStatus = "accepted"
+        RtcConnectionManager.callStartedAt = System.currentTimeMillis()
         FloatingCallOverlayService.stop(this, callId)
         cancelCallNotification()
         ChatHeadPlugin.queueCallAction(this, callId, "accept", chatId, callerName ?: "", callType ?: "", avatarUrl ?: "")
         NotificationReceiver.reportAcceptToBackend(this, callId)
-        val appIntent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra("chatId", chatId)
-            putExtra("callId", callId)
-            putExtra("callAction", "accept")
-            putExtra("callerName", callerName)
-            putExtra("callType", callType)
-            putExtra("avatarUrl", avatarUrl)
-        }
-        startActivity(appIntent)
-
         val activeCallIntent = Intent(this, ActiveCallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("chatId", chatId)
@@ -438,7 +432,7 @@ class IncomingCallActivity : Activity() {
             putExtra("callerName", callerName)
             putExtra("callType", callType)
             putExtra("avatarUrl", avatarUrl)
-            putExtra("callStartedAt", if (RtcConnectionManager.callStartedAt > 0L) RtcConnectionManager.callStartedAt else System.currentTimeMillis())
+            putExtra("callStartedAt", RtcConnectionManager.callStartedAt)
         }
         startActivity(activeCallIntent)
         finish()
@@ -461,6 +455,7 @@ class IncomingCallActivity : Activity() {
     }
 
     private fun loadAvatar(avatarUrl: String?, avatar: ImageView) {
+        avatar.setImageBitmap(createInitialAvatar(callerName, dp(128)))
         if (avatarUrl.isNullOrBlank() || avatarUrl.startsWith("preset:")) return
         Thread {
             var connection: HttpURLConnection? = null
@@ -483,6 +478,24 @@ class IncomingCallActivity : Activity() {
         }.start()
     }
 
+    private fun createInitialAvatar(name: String?, size: Int): Bitmap {
+        val safeSize = size.coerceAtLeast(48)
+        val bitmap = Bitmap.createBitmap(safeSize, safeSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#315EEB")
+        }
+        canvas.drawCircle(safeSize / 2f, safeSize / 2f, safeSize / 2f, paint)
+        paint.color = Color.WHITE
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textSize = safeSize * 0.42f
+        val initial = name?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+        val y = safeSize / 2f - (paint.ascent() + paint.descent()) / 2f
+        canvas.drawText(initial, safeSize / 2f, y, paint)
+        return bitmap
+    }
+
     private fun toCircle(src: Bitmap): Bitmap {
         val size = minOf(src.width, src.height)
         val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -499,6 +512,22 @@ class IncomingCallActivity : Activity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density + 0.5f).toInt()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isActivityVisible = true
+        val hideOverlayIntent = Intent(this, FloatingCallOverlayService::class.java).apply {
+            action = FloatingCallOverlayService.ACTION_HIDE_OVERLAY_ONLY
+        }
+        try {
+            startService(hideOverlayIntent)
+        } catch (_: Exception) {}
+    }
+
+    override fun onPause() {
+        isActivityVisible = false
+        super.onPause()
     }
 
     override fun onDestroy() {

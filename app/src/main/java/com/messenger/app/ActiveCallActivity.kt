@@ -67,15 +67,25 @@ class ActiveCallActivity : Activity() {
     private var timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
         override fun run() {
-            val start = RtcConnectionManager.callStartedAt
-            if (start > 0L) {
-                secondsElapsed = ((System.currentTimeMillis() - start) / 1000).toInt()
+            val status = RtcConnectionManager.callStatus
+            if (status != "accepted") {
+                val statusText = when (status) {
+                    "ringing" -> "Csengés..."
+                    "connecting" -> "Kapcsolódás..."
+                    else -> "Hívás..."
+                }
+                timerText.text = statusText
             } else {
-                secondsElapsed++
+                val start = RtcConnectionManager.callStartedAt
+                if (start > 0L) {
+                    secondsElapsed = ((System.currentTimeMillis() - start) / 1000).toInt()
+                } else {
+                    secondsElapsed++
+                }
+                val minutes = secondsElapsed / 60
+                val seconds = secondsElapsed % 60
+                timerText.text = String.format(Locale.US, "%02d:%02d", minutes, seconds)
             }
-            val minutes = secondsElapsed / 60
-            val seconds = secondsElapsed % 60
-            timerText.text = String.format(Locale.US, "%02d:%02d", minutes, seconds)
             timerHandler.postDelayed(this, 1000)
         }
     }
@@ -83,6 +93,9 @@ class ActiveCallActivity : Activity() {
     companion object {
         private const val TAG = "ActiveCallActivity"
         private var instanceRef = WeakReference<ActiveCallActivity>(null)
+
+        @JvmField
+        var isActivityVisible = false
 
         @JvmStatic
         fun dismissActiveCall(targetCallId: String?) {
@@ -109,8 +122,10 @@ class ActiveCallActivity : Activity() {
         val callStartedAtExtra = intent.getLongExtra("callStartedAt", 0L)
         if (callStartedAtExtra > 0L) {
             RtcConnectionManager.callStartedAt = callStartedAtExtra
-        } else if (RtcConnectionManager.callStartedAt == 0L) {
+        } else if (RtcConnectionManager.callStatus == "accepted" && RtcConnectionManager.callStartedAt == 0L) {
             RtcConnectionManager.callStartedAt = System.currentTimeMillis()
+        } else if (RtcConnectionManager.callStatus != "accepted") {
+            RtcConnectionManager.callStartedAt = 0L
         }
 
         if (NotificationReceiver.isCallDismissed(this, callId)) {
@@ -121,11 +136,11 @@ class ActiveCallActivity : Activity() {
         // Initial Audio State Sync
         syncAudioInitialState()
 
-        // Visual Gradient Background (Translucent & Immersive Dark Gradient)
+        // Same blue visual language as the in-app call screen.
         window.setBackgroundDrawable(
             GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
+                intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#172554"), Color.parseColor("#080B18"))
             )
         )
 
@@ -188,6 +203,10 @@ class ActiveCallActivity : Activity() {
                 RelativeLayout.LayoutParams.MATCH_PARENT,
                 RelativeLayout.LayoutParams.MATCH_PARENT
             )
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#172554"), Color.parseColor("#080B18"))
+            )
         }
 
         // ── TOP ACTION BAR ──────────────────────────────────────────────────────
@@ -213,7 +232,8 @@ class ActiveCallActivity : Activity() {
             isFocusable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(35, 255, 255, 255))
+                setColor(Color.argb(46, 255, 255, 255))
+                setStroke(dp(1), Color.argb(72, 255, 255, 255))
             }
 
             val icon = ImageView(this@ActiveCallActivity).apply {
@@ -320,7 +340,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(40, 56, 189, 248))
+                setColor(Color.argb(52, 147, 197, 253))
             }
         }
         val ring2 = View(this).apply {
@@ -328,7 +348,7 @@ class ActiveCallActivity : Activity() {
             layoutParams = rlp
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(60, 56, 189, 248))
+                setColor(Color.argb(76, 96, 165, 250))
             }
         }
         val avatarView = ImageView(this).apply {
@@ -340,7 +360,7 @@ class ActiveCallActivity : Activity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.rgb(30, 41, 59)) // slate-800 placeholder bg
-                setStroke(dp(3), Color.parseColor("#38BDF8"))
+                setStroke(dp(3), Color.parseColor("#BFDBFE"))
             }
             clipToOutline = true
             outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
@@ -383,8 +403,17 @@ class ActiveCallActivity : Activity() {
 
         // Timer counter
         timerText = TextView(this).apply {
-            text = "00:00"
-            setTextColor(Color.parseColor("#94A3B8")) // slate-400
+            val status = RtcConnectionManager.callStatus
+            text = if (status != "accepted") {
+                when (status) {
+                    "ringing" -> "Csengés..."
+                    "connecting" -> "Kapcsolódás..."
+                    else -> "Hívás..."
+                }
+            } else {
+                "00:00"
+            }
+            setTextColor(Color.parseColor("#DBEAFE"))
             textSize = 15f
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
@@ -423,8 +452,8 @@ class ActiveCallActivity : Activity() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(32).toFloat()
                     // Dark elegant glassmorphism
-                    setColor(Color.argb(230, 15, 23, 42)) // translucent slate-900 sheet
-                    setStroke(dp(1), Color.argb(100, 56, 189, 248)) // soft sky-400 edge
+                    setColor(Color.argb(218, 15, 35, 83))
+                    setStroke(dp(1), Color.argb(130, 147, 197, 253))
                 }
                 elevation = dp(16).toFloat()
             }
@@ -831,6 +860,7 @@ class ActiveCallActivity : Activity() {
     }
 
     private fun loadAvatar(avatarUrl: String?, avatar: ImageView) {
+        avatar.setImageBitmap(createInitialAvatar(displayCallerName(), dp(128)))
         if (avatarUrl.isNullOrBlank() || avatarUrl.startsWith("preset:")) return
         Thread {
             var connection: HttpURLConnection? = null
@@ -851,6 +881,22 @@ class ActiveCallActivity : Activity() {
                 try { input?.close(); connection?.disconnect() } catch (ignored: Exception) {}
             }
         }.start()
+    }
+
+    private fun createInitialAvatar(name: String?, size: Int): Bitmap {
+        val safeSize = size.coerceAtLeast(48)
+        val bitmap = Bitmap.createBitmap(safeSize, safeSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#315EEB") }
+        canvas.drawCircle(safeSize / 2f, safeSize / 2f, safeSize / 2f, paint)
+        paint.color = Color.WHITE
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textSize = safeSize * 0.42f
+        val initial = name?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+        val y = safeSize / 2f - (paint.ascent() + paint.descent()) / 2f
+        canvas.drawText(initial, safeSize / 2f, y, paint)
+        return bitmap
     }
 
     private fun toCircle(src: Bitmap): Bitmap {
@@ -880,9 +926,22 @@ class ActiveCallActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        isActivityVisible = true
+        val hideOverlayIntent = Intent(this, FloatingCallOverlayService::class.java).apply {
+            action = FloatingCallOverlayService.ACTION_HIDE_OVERLAY_ONLY
+        }
+        try {
+            startService(hideOverlayIntent)
+        } catch (_: Exception) {}
+
         if (!callEnded && NotificationReceiver.isCallDismissed(this, callId)) {
             showCallEndedScreen()
         }
+    }
+
+    override fun onPause() {
+        isActivityVisible = false
+        super.onPause()
     }
 
     override fun onDestroy() {

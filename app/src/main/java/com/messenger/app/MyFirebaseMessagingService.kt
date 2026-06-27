@@ -572,6 +572,8 @@ class MyFirebaseMessagingService : MessagingService() {
             .setShortcutId(chatId) // Link to published shortcut for Bubbles
             .setLocusId(androidx.core.content.LocusIdCompat(chatId))
             .setStyle(messagingStyle)
+            .setGroup("messenger_conversations")
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .addAction(android.R.drawable.ic_menu_send, "Válasz", pendingIntent)
 
         if (!isNotificationSoundEnabled()) {
@@ -585,5 +587,15 @@ class MyFirebaseMessagingService : MessagingService() {
         }
 
         manager?.notify(notificationId, builder.build())
+        val summary = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_call_chat)
+            .setContentTitle("Új üzenetek")
+            .setContentText("A legutóbbi beszélgetések egy csoportban")
+            .setGroup("messenger_conversations")
+            .setGroupSummary(true)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .build()
+        manager?.notify(909090, summary)
     }
 }

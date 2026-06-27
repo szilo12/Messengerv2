@@ -212,6 +212,8 @@ class NotificationReceiver : BroadcastReceiver() {
                 reportDeclineToBackend(context, callId)
             }
             ACTION_ACCEPT_CALL -> {
+                RtcConnectionManager.callStatus = "accepted"
+                RtcConnectionManager.callStartedAt = System.currentTimeMillis()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     RtcConnectionManager.getConnection()?.let { conn ->
                         try {
@@ -228,17 +230,6 @@ class NotificationReceiver : BroadcastReceiver() {
                 ChatHeadPlugin.sendStopRingtoneEvent()
                 reportAcceptToBackend(context, callId)
                 showOngoingCallSurface(context, callId, chatId, callerName, callType, avatarUrl)
-
-                val appIntent = Intent(context, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    putExtra("chatId", chatId)
-                    putExtra("callId", callId)
-                    putExtra("callAction", "accept")
-                    putExtra("callerName", callerName)
-                    putExtra("callType", callType)
-                    putExtra("avatarUrl", avatarUrl)
-                }
-                context.startActivity(appIntent)
 
                 val activeCallIntent = Intent(context, ActiveCallActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -295,6 +286,7 @@ class NotificationReceiver : BroadcastReceiver() {
         ChatHeadPlugin.activeCallerName = callerName ?: "Messenger"
         ChatHeadPlugin.activeCallType = callType ?: "audio"
         ChatHeadPlugin.activeAvatarUrl = avatarUrl ?: ""
+        ChatHeadPlugin.activeCallStartedAt = RtcConnectionManager.callStartedAt
 
         val ongoingIntent = Intent(context, FloatingCallOverlayService::class.java).apply {
             action = FloatingCallOverlayService.ACTION_SHOW_NOTIFICATION_ONLY
@@ -305,6 +297,7 @@ class NotificationReceiver : BroadcastReceiver() {
             putExtra("avatarUrl", avatarUrl ?: "")
             putExtra("statusText", "Kapcsolódva")
             putExtra("isOngoingOrOutgoing", true)
+            putExtra("callStartedAt", RtcConnectionManager.callStartedAt)
         }
         try {
             ContextCompat.startForegroundService(context, ongoingIntent)
